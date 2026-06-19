@@ -15,7 +15,7 @@ from handlers.spawn import handle_message_count, cmd_waifu_catch
 from handlers.gallery import cmd_collection_gallery, handle_gallery_callback
 from handlers.user_commands import (
     cmd_start, cmd_help, cmd_profil,
-    cmd_daily, cmd_top, cmd_search, cmd_anime, cmd_stats,
+    cmd_daily, cmd_top, cmd_gtop, cmd_search, cmd_anime, cmd_stats,
     cmd_favorite, cmd_history
 )
 from handlers.trade import cmd_trade, handle_trade_callback
@@ -26,10 +26,12 @@ from handlers.admin import (
     cmd_addadmin, cmd_removeadmin, cmd_ban_user, cmd_unban_user,
     cmd_givecoins, cmd_givewaifu, cmd_event, cmd_approvegroup, cmd_denygroup,
     cmd_addchannel, cmd_removechannel, cmd_panel, cmd_setspawn,
-    cmd_addgroup_bypass, get_addwaifu_handler, received_rarity
+    cmd_addgroup_bypass, get_addwaifu_handler, received_rarity,
+    handle_panel_callback
 )
 from handlers.group_management import handle_new_chat_member, handle_chat_member
 from middlewares.moderation import cmd_warn, cmd_mute, cmd_unmute, cmd_kick, cmd_ban, cmd_unban
+from middlewares.subscription import handle_subscription_check
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -40,10 +42,11 @@ logger = logging.getLogger(__name__)
 
 GROUP_COMMANDS = [
     BotCommand("waifu", "Waifu tutish: /waifu [ism]"),
-    BotCommand("collection", "Kolleksiyangiz va galereya"),
+    BotCommand("collection", "Kolleksiyangiz va galerya"),
     BotCommand("profil", "Profilingiz"),
     BotCommand("daily", "Kunlik mukofot"),
-    BotCommand("top", "Reyting"),
+    BotCommand("top", "Global reyting"),
+    BotCommand("gtop", "Guruh reytingi"),
     BotCommand("trade", "Waifu savdosi"),
     BotCommand("gift", "Waifu sovg'a qilish"),
     BotCommand("sell", "Bozorga qo'yish"),
@@ -58,12 +61,13 @@ PRIVATE_COMMANDS = [
     BotCommand("profil", "Profilingiz"),
     BotCommand("collection", "Kolleksiyangiz"),
     BotCommand("daily", "Kunlik mukofot"),
-    BotCommand("top", "Reyting"),
+    BotCommand("top", "Global reyting"),
     BotCommand("market", "Bozor"),
     BotCommand("search", "Waifu qidirish"),
     BotCommand("stats", "Statistika"),
     BotCommand("help", "Yordam"),
 ]
+
 
 async def post_init(application: Application):
     await init_db()
@@ -84,7 +88,6 @@ async def post_init(application: Application):
         except Exception as e:
             logger.error(f"God admin setup error: {e}")
 
-    # Set bot commands for different scopes
     try:
         await application.bot.set_my_commands(GROUP_COMMANDS, scope=BotCommandScopeAllGroupChats())
         await application.bot.set_my_commands(PRIVATE_COMMANDS, scope=BotCommandScopeAllPrivateChats())
@@ -96,7 +99,7 @@ async def post_init(application: Application):
 def build_app(token: str) -> Application:
     app = Application.builder().token(token).post_init(post_init).build()
 
-    # Admin conversation handler
+    # Admin conversation handler (must be first)
     app.add_handler(get_addwaifu_handler())
 
     # User commands
@@ -106,6 +109,7 @@ def build_app(token: str) -> Application:
     app.add_handler(CommandHandler("collection", cmd_collection_gallery))
     app.add_handler(CommandHandler("daily", cmd_daily))
     app.add_handler(CommandHandler("top", cmd_top))
+    app.add_handler(CommandHandler("gtop", cmd_gtop))
     app.add_handler(CommandHandler("search", cmd_search))
     app.add_handler(CommandHandler("anime", cmd_anime))
     app.add_handler(CommandHandler("stats", cmd_stats))
@@ -151,7 +155,9 @@ def build_app(token: str) -> Application:
     app.add_handler(CommandHandler("ban", cmd_ban))
     app.add_handler(CommandHandler("unban", cmd_unban))
 
-    # Callbacks
+    # Callbacks — order matters (most specific first)
+    app.add_handler(CallbackQueryHandler(handle_subscription_check, pattern="^sub_check$"))
+    app.add_handler(CallbackQueryHandler(handle_panel_callback, pattern="^panel_"))
     app.add_handler(CallbackQueryHandler(handle_trade_callback, pattern="^trade_"))
     app.add_handler(CallbackQueryHandler(handle_gift_callback, pattern="^gift_"))
     app.add_handler(CallbackQueryHandler(received_rarity, pattern="^rarity_"))

@@ -11,25 +11,35 @@ from utils.helpers import get_rarity_emoji, is_god_admin, RARITY_ORDER, generate
 ADD_WAIFU_PHOTO, ADD_WAIFU_NAME, ADD_WAIFU_ANIME, ADD_WAIFU_RARITY = range(4)
 pending_waifu = {}
 
+
 async def require_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user = update.effective_user
     if not await log_db.is_admin(user.id):
-        await update.message.reply_text("❌ Ruxsatingiz yo'q.")
+        if update.message:
+            await update.message.reply_text("❌ Ruxsatingiz yo'q.")
         return False
     return True
+
 
 async def require_god(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user = update.effective_user
     if not is_god_admin(user.id):
-        await update.message.reply_text("❌ Bu buyruq faqat God Admin uchun.")
+        if update.message:
+            await update.message.reply_text("❌ Bu buyruq faqat God Admin uchun.")
         return False
     return True
+
+
+# ──────────────────────────────────────
+#  WAIFU QO'SHISH (ConversationHandler)
+# ──────────────────────────────────────
 
 async def cmd_addwaifu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, context):
         return ConversationHandler.END
     await update.message.reply_text("📸 Waifu rasmini yuboring:")
     return ADD_WAIFU_PHOTO
+
 
 async def received_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -41,6 +51,7 @@ async def received_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Rasm qabul qilindi.\n\n📝 Waifu ismini kiriting:")
     return ADD_WAIFU_NAME
 
+
 async def received_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     name = update.message.text.strip()
@@ -50,6 +61,7 @@ async def received_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending_waifu[user.id]["name"] = name
     await update.message.reply_text("🎌 Anime nomini kiriting:")
     return ADD_WAIFU_ANIME
+
 
 async def received_anime(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -62,12 +74,16 @@ async def received_anime(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⭐ Darajani tanlang:", reply_markup=keyboard)
     return ADD_WAIFU_RARITY
 
+
 async def received_rarity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user = query.from_user
     rarity = query.data.replace("rarity_", "")
     data = pending_waifu.get(user.id, {})
+    if not data:
+        await query.edit_message_text("❌ Ma'lumot topilmadi. /addwaifu qayta boshlang.")
+        return ConversationHandler.END
     data["rarity"] = rarity
     waifu_id = generate_waifu_id(rarity)
     success = await waifu_db.add_waifu(
@@ -88,21 +104,33 @@ async def received_rarity(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
     else:
-        await query.edit_message_text("❌ Xatolik yuz berdi.")
+        await query.edit_message_text("❌ Xatolik yuz berdi. Ehtimol bu ID allaqachon mavjud.")
     return ConversationHandler.END
+
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending_waifu.pop(update.effective_user.id, None)
     await update.message.reply_text("❌ Bekor qilindi.")
     return ConversationHandler.END
 
+
+# ──────────────────────────────────────
+#  ADMIN BUYRUQLARI
+# ──────────────────────────────────────
+
 async def cmd_removewaifu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, context): return
     if not context.args:
         await update.message.reply_text("❌ Format: /removewaifu [waifu_id]")
         return
-    await waifu_db.remove_waifu(context.args[0])
-    await update.message.reply_text(f"✅ {context.args[0]} o'chirildi.")
+    wid = context.args[0]
+    waifu = await waifu_db.get_waifu(wid)
+    if not waifu:
+        await update.message.reply_text(f"❌ {wid} topilmadi.")
+        return
+    await waifu_db.remove_waifu(wid)
+    await update.message.reply_text(f"✅ <b>{waifu['name']}</b> ({wid}) o'chirildi.", parse_mode="HTML")
+
 
 async def cmd_spawn_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, context): return
@@ -113,8 +141,8 @@ async def cmd_spawn_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from handlers.spawn import do_spawn
     await do_spawn(context, chat.id, chat.title)
 
+
 async def cmd_setspawn(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Set spawn threshold for current group. Min 100."""
     chat = update.effective_chat
     if chat.type not in ("group", "supergroup"):
         await update.message.reply_text("❌ Faqat guruhda ishlaydi.")
@@ -142,8 +170,8 @@ async def cmd_setspawn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
 
+
 async def cmd_addgroup_bypass(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """God admin adds a group bypassing member count check."""
     if not await require_god(update, context): return
     if not context.args:
         await update.message.reply_text("❌ Format: /addgroup [group_id]")
@@ -163,9 +191,10 @@ async def cmd_addgroup_bypass(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         await db.commit()
     await update.message.reply_text(
-        f"✅ Guruh <code>{gid}</code> ro'yxatga qo'shildi (limit chetlab o'tildi).",
+        f"✅ Guruh <code>{gid}</code> ro'yxatga qo'shildi.",
         parse_mode="HTML"
     )
+
 
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_god(update, context): return
@@ -181,9 +210,10 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(uid, f"📢 <b>E'lon:</b>\n\n{message}", parse_mode="HTML")
             sent += 1
             await asyncio.sleep(0.05)
-        except:
+        except Exception:
             failed += 1
     await update.message.reply_text(f"✅ Yuborildi: {sent} | ❌ Muvaffaqiyatsiz: {failed}")
+
 
 async def cmd_addadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_god(update, context): return
@@ -199,6 +229,7 @@ async def cmd_addadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await log_db.add_admin(uid, username, update.effective_user.id)
     await update.message.reply_text(f"✅ {uid} admin qilindi.")
 
+
 async def cmd_removeadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_god(update, context): return
     if not context.args:
@@ -211,6 +242,7 @@ async def cmd_removeadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await log_db.remove_admin(uid)
     await update.message.reply_text(f"✅ {uid} adminlikdan olib tashlandi.")
+
 
 async def cmd_ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, context): return
@@ -227,6 +259,7 @@ async def cmd_ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await log_db.add_log("ban", user_id=update.effective_user.id, details=f"banned={uid} reason={reason}")
     await update.message.reply_text(f"✅ {uid} bloklandi. Sabab: {reason}")
 
+
 async def cmd_unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, context): return
     if not context.args:
@@ -239,6 +272,7 @@ async def cmd_unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await user_db.unban_user(uid)
     await update.message.reply_text(f"✅ {uid} blokdan chiqarildi.")
+
 
 async def cmd_givecoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_god(update, context): return
@@ -254,6 +288,7 @@ async def cmd_givecoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await user_db.add_coins(uid, amount)
     await log_db.add_log("give_coins", user_id=update.effective_user.id, details=f"to={uid} amount={amount}")
     await update.message.reply_text(f"✅ {uid} ga {amount:,} coin berildi.")
+
 
 async def cmd_givewaifu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_god(update, context): return
@@ -275,6 +310,7 @@ async def cmd_givewaifu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ {emoji} <b>{waifu['name']}</b> → {uid} ga berildi.", parse_mode="HTML"
     )
+
 
 async def cmd_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, context): return
@@ -306,6 +342,7 @@ async def cmd_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await log_db.stop_event()
         await update.message.reply_text("✅ Event to'xtatildi.")
 
+
 async def cmd_approvegroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_god(update, context): return
     if not context.args:
@@ -318,6 +355,7 @@ async def cmd_approvegroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await grp_db.approve_group(gid, update.effective_user.id)
     await update.message.reply_text(f"✅ Guruh {gid} tasdiqlandi.")
+
 
 async def cmd_denygroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_god(update, context): return
@@ -332,57 +370,160 @@ async def cmd_denygroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await grp_db.deny_group(gid)
     await update.message.reply_text(f"✅ Guruh {gid} rad etildi.")
 
+
 async def cmd_addchannel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_god(update, context): return
     if len(context.args or []) < 2:
-        await update.message.reply_text("❌ Format: /addchannel [channel_id] [nomi]\nMisol: /addchannel @mychannel Mening kanalim")
+        await update.message.reply_text(
+            "❌ Format: /addchannel [channel_id] [nomi]\n"
+            "Misol: /addchannel @mychannel Mening kanalim\n\n"
+            "⚠️ Bot kanalga admin bo'lishi shart emas, lekin kanal ochiq yoki bot unda bo'lishi kerak."
+        )
         return
     channel_id = context.args[0]
     name = " ".join(context.args[1:])
+    try:
+        await context.bot.get_chat(channel_id)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Kanal topilmadi yoki bot kira olmadi: {e}")
+        return
     await grp_db.add_required_channel(channel_id, name, "channel", update.effective_user.id)
-    await update.message.reply_text(f"✅ Majburiy kanal qo'shildi: <b>{name}</b>", parse_mode="HTML")
+    await update.message.reply_text(
+        f"✅ Majburiy kanal qo'shildi: <b>{name}</b>\n"
+        f"🆔 ID: <code>{channel_id}</code>",
+        parse_mode="HTML"
+    )
+
 
 async def cmd_removechannel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_god(update, context): return
     if not context.args:
-        await update.message.reply_text("❌ Format: /removechannel [channel_id]")
+        channels = await grp_db.get_required_channels()
+        if not channels:
+            await update.message.reply_text("📋 Majburiy kanallar yo'q.")
+            return
+        lines = ["📋 <b>Majburiy kanallar:</b>\n"]
+        for ch in channels:
+            lines.append(f"• <code>{ch['channel_id']}</code> — {ch.get('channel_name', '')}")
+        lines.append("\nO'chirish: /removechannel [channel_id]")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
         return
     await grp_db.remove_required_channel(context.args[0])
-    await update.message.reply_text("✅ Kanal olib tashlandi.")
+    await update.message.reply_text(f"✅ <code>{context.args[0]}</code> kanal olib tashlandi.", parse_mode="HTML")
+
+
+# ──────────────────────────────────────
+#  ADMIN PANEL  (tugmali menyu)
+# ──────────────────────────────────────
+
+def build_panel_keyboard(god: bool) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton("➕ Waifu qo'shish", callback_data="panel_addwaifu"),
+            InlineKeyboardButton("🗑 Waifu o'chirish", callback_data="panel_rmwaifu"),
+        ],
+        [
+            InlineKeyboardButton("📢 Kanal qo'shish", callback_data="panel_addch"),
+            InlineKeyboardButton("❌ Kanal o'chirish", callback_data="panel_rmch"),
+        ],
+        [
+            InlineKeyboardButton("💰 Coin berish", callback_data="panel_coins"),
+            InlineKeyboardButton("🎴 Waifu berish", callback_data="panel_givew"),
+        ],
+        [
+            InlineKeyboardButton("🚫 Ban", callback_data="panel_ban"),
+            InlineKeyboardButton("✅ Unban", callback_data="panel_unban"),
+        ],
+        [
+            InlineKeyboardButton("📣 Broadcast", callback_data="panel_broadcast"),
+            InlineKeyboardButton("⚡ Event", callback_data="panel_event"),
+        ],
+        [
+            InlineKeyboardButton("📊 Statistika", callback_data="panel_stats"),
+            InlineKeyboardButton("🔧 Spawn", callback_data="panel_spawn"),
+        ],
+    ]
+    if god:
+        rows.append([
+            InlineKeyboardButton("👑 Admin qo'shish", callback_data="panel_addadmin"),
+            InlineKeyboardButton("🔴 Admin o'chirish", callback_data="panel_rmadmin"),
+        ])
+    return InlineKeyboardMarkup(rows)
+
+
+PANEL_HELP = {
+    "panel_addwaifu":  "➕ <b>Waifu qo'shish</b>\n\nBuyruq: /addwaifu\nBot so'z bosqichma-bosqich rasm, ism, anime va darajani so'raydi.",
+    "panel_rmwaifu":   "🗑 <b>Waifu o'chirish</b>\n\nBuyruq: <code>/removewaifu [waifu_id]</code>\nMisol: <code>/removewaifu CM-123456</code>",
+    "panel_addch":     "📢 <b>Majburiy kanal qo'shish</b>\n\nBuyruq: <code>/addchannel [kanal_id] [nomi]</code>\nMisol: <code>/addchannel @mychannel Mening kanalim</code>\n\n⚠️ Bot kanal a'zosi bo'lishi kerak.",
+    "panel_rmch":      "❌ <b>Kanal o'chirish</b>\n\nBuyruq: <code>/removechannel [kanal_id]</code>\nMisol: <code>/removechannel @mychannel</code>\n\nYoki: /removechannel (ro'yxat ko'rish)",
+    "panel_coins":     "💰 <b>Coin berish</b>\n\nBuyruq: <code>/givecoins [user_id] [miqdor]</code>\nMisol: <code>/givecoins 123456789 1000</code>",
+    "panel_givew":     "🎴 <b>Waifu berish</b>\n\nBuyruq: <code>/givewaifu [user_id] [waifu_id]</code>\nMisol: <code>/givewaifu 123456789 LG-654321</code>",
+    "panel_ban":       "🚫 <b>Foydalanuvchini bloklash</b>\n\nBuyruq: <code>/banuser [user_id] [sabab]</code>\nMisol: <code>/banuser 123456789 Spam</code>",
+    "panel_unban":     "✅ <b>Blokdan chiqarish</b>\n\nBuyruq: <code>/unbanuser [user_id]</code>\nMisol: <code>/unbanuser 123456789</code>",
+    "panel_broadcast": "📣 <b>Broadcast (Barcha foydalanuvchilarga)</b>\n\nBuyruq: <code>/broadcast [xabar]</code>\nMisol: <code>/broadcast Yangi event boshlandi!</code>\n\n⚠️ Faqat God Admin uchun.",
+    "panel_event":     "⚡ <b>Event boshqaruvi</b>\n\nBoshlash: <code>/event start [tur] [multiplier] [soat] [tavsif]</code>\nTo'xtatish: <code>/event stop</code>\n\nTurlar: double_spawn, double_coin, anime, seasonal\nMisol: <code>/event start double_coin 2 4 2x Coin Event</code>",
+    "panel_stats":     "📊 <b>Statistika</b>\n\nBuyruq: /stats\nBot bo'yicha umumiy statistikani ko'rsatadi.",
+    "panel_spawn":     "🔧 <b>Spawn sozlamalari</b>\n\nHozirgi: <code>/setspawn</code> (ko'rish)\nO'zgartirish: <code>/setspawn [son]</code>\nQo'lda chiqarish: <code>/spawn</code>\n\nMinimum: 100 xabar",
+    "panel_addadmin":  "👑 <b>Admin qo'shish</b>\n\nBuyruq: <code>/addadmin [user_id] [username]</code>\nMisol: <code>/addadmin 123456789 johndoe</code>",
+    "panel_rmadmin":   "🔴 <b>Admin o'chirish</b>\n\nBuyruq: <code>/removeadmin [user_id]</code>\nMisol: <code>/removeadmin 123456789</code>",
+}
+
 
 async def cmd_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, context): return
     user = update.effective_user
     god = is_god_admin(user.id)
-    text = (
+    role = "👑 God Admin" if god else "🔧 Admin"
+
+    await update.message.reply_text(
         f"🛡️ <b>ADMIN PANEL</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{'👑 God Admin' if god else '🔧 Admin'}\n\n"
-        f"<b>Waifu:</b>\n"
-        f"/addwaifu — qo'shish\n"
-        f"/removewaifu [id] — o'chirish\n"
-        f"/givewaifu [uid] [wid] — berish\n"
-        f"/spawn — qo'lda chiqarish\n\n"
-        f"<b>Guruh:</b>\n"
-        f"/setspawn [son] — spawn chegarasi\n"
-        f"/addgroup [id] — limitni chetlab qo'shish\n\n"
-        f"<b>Foydalanuvchi:</b>\n"
-        f"/banuser [id] — bloklash\n"
-        f"/unbanuser [id] — blokdan chiqarish\n"
-        f"/givecoins [id] [miqdor] — coin berish\n\n"
-        f"<b>Event:</b>\n"
-        f"/event start/stop\n"
+        f"Salom, {role}!\n"
+        f"Kerakli amalni tanlang:",
+        parse_mode="HTML",
+        reply_markup=build_panel_keyboard(god)
     )
-    if god:
-        text += (
-            f"\n<b>God Admin:</b>\n"
-            f"/addadmin [id] — admin qo'shish\n"
-            f"/removeadmin [id] — o'chirish\n"
-            f"/broadcast [xabar] — e'lon\n"
-            f"/addchannel [id] [nom] — majburiy kanal\n"
-            f"/removechannel [id] — kanal o'chirish\n"
-        )
-    await update.message.reply_text(text, parse_mode="HTML")
+
+
+async def handle_panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+
+    if not await log_db.is_admin(user.id):
+        await query.answer("❌ Ruxsatingiz yo'q.", show_alert=True)
+        return
+
+    data = query.data
+    god = is_god_admin(user.id)
+
+    help_text = PANEL_HELP.get(data)
+    if help_text:
+        back_btn = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Orqaga", callback_data="panel_back")]
+        ])
+        try:
+            await query.edit_message_text(
+                help_text,
+                parse_mode="HTML",
+                reply_markup=back_btn
+            )
+        except Exception:
+            pass
+        return
+
+    if data == "panel_back":
+        try:
+            await query.edit_message_text(
+                f"🛡️ <b>ADMIN PANEL</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"Kerakli amalni tanlang:",
+                parse_mode="HTML",
+                reply_markup=build_panel_keyboard(god)
+            )
+        except Exception:
+            pass
+
 
 def get_addwaifu_handler():
     return ConversationHandler(

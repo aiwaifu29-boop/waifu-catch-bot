@@ -1,7 +1,7 @@
 import random
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationHandler
+from telegram.ext import ContextTypes
 from database import users as user_db
 from database import collections as col_db
 from database import waifus as waifu_db
@@ -9,6 +9,18 @@ from database import market as market_db
 from database import logs as log_db
 from database.logs import get_active_event
 from utils.helpers import get_rarity_emoji, format_profile, format_waifu_card, RARITY_ORDER
+
+
+async def _check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    from middlewares.subscription import check_subscription
+    return await check_subscription(update, context)
+
+
+async def _check_ban(user_id: int) -> bool:
+    """Returns True if user is banned."""
+    u = await user_db.get_user(user_id)
+    return bool(u and u.get("is_banned"))
+
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -21,13 +33,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
 
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📋 <b>BUYRUQLAR RO'YXATI</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "👤 <b>Profil</b>\n"
         "/profil — profilingiz\n"
-        "/collection — kolleksiyangiz\n"
+        "/collection — kolleksiyangiz + galerya\n"
         "/daily — kunlik mukofot\n"
         "/favorite ID — sevimlilar\n"
         "\n"
@@ -43,65 +56,39 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔍 <b>Qidiruv</b>\n"
         "/search ISMO — qidirish\n"
         "/anime NOMI — anime bo'yicha\n"
-        "/top — reyting\n"
+        "\n"
+        "🏆 <b>Reyting</b>\n"
+        "/top — global top (waifu)\n"
+        "/top coin — global top (coin)\n"
+        "/gtop — guruh top (waifu)\n"
+        "/gtop coin — guruh top (coin)\n"
+        "\n"
         "/stats — statistika\n"
         "/history — tarix\n"
         "━━━━━━━━━━━━━━━━━━━━",
         parse_mode="HTML"
     )
 
+
 async def cmd_profil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    if not await _check_sub(update, context): return
     db_user = await user_db.get_or_create_user(user.id, user.username, user.full_name)
     count = await col_db.count_collection(user.id)
     rank = await user_db.get_user_rank(user.id)
     text = format_profile(db_user, count, rank)
     await update.message.reply_text(text, parse_mode="HTML")
 
-async def cmd_collection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    args = context.args or []
-
-    rarity = None
-    anime = None
-    page = 1
-
-    for arg in args:
-        if arg.isdigit():
-            page = max(1, int(arg))
-        elif arg.title() in RARITY_ORDER:
-            rarity = arg.title()
-        else:
-            anime = arg
-
-    offset = (page - 1) * 10
-    items = await col_db.get_collection(user.id, rarity=rarity, anime=anime, limit=10, offset=offset)
-    total = await col_db.count_collection(user.id)
-
-    if not items:
-        await update.message.reply_text(
-            "📦 Kolleksiyangiz bo'sh yoki filtr bo'yicha waifu topilmadi."
-        )
-        return
-
-    lines = [f"🎴 <b>KOLLEKSIYA</b> ({total} ta)\n━━━━━━━━━━━━━━━━━━━━"]
-    for item in items:
-        emoji = get_rarity_emoji(item["rarity"])
-        fav = "⭐ " if item["is_favorite"] else ""
-        lines.append(
-            f"{fav}{emoji} <b>{item['name']}</b> — {item['anime']}\n"
-            f"   🆔 <code>{item['collection_id']}</code> | {item['rarity']}"
-        )
-
-    total_pages = (total + 9) // 10
-    lines.append(f"\n━━━━━━━━━━━━━━━━━━━━\nSahifa: {page}/{total_pages}")
-    lines.append("Filtr: /collection [daraja] [anime] [sahifa]")
-
-    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     await user_db.get_or_create_user(user.id, user.username, user.full_name)
+
+    if not await _check_sub(update, context): return
+
+    if await _check_ban(user.id):
+        await update.message.reply_text("🚫 Siz bloklanganlar ro'yxatasiz.")
+        return
 
     daily = await log_db.get_daily_reward(user.id)
     now = datetime.now()
@@ -152,31 +139,76 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text, parse_mode="HTML")
 
+
 async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Global top across the whole bot."""
+    if not await _check_sub(update, context): return
     args = context.args or []
     mode = args[0].lower() if args else "waifu"
 
-    lines = ["🏆 <b>TOP REYTING</b>\n━━━━━━━━━━━━━━━━━━━━"]
+    medals = ["🥇", "🥈", "🥉"] + ["4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
     if mode in ("coin", "coins", "boy"):
         users = await user_db.get_top_users(10, "coins")
-        lines[0] = "💰 <b>ENG BOY FOYDALANUVCHILAR</b>\n━━━━━━━━━━━━━━━━━━━━"
-        medals = ["🥇", "🥈", "🥉"] + ["4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+        lines = ["💰 <b>GLOBAL TOP — ENG BOY</b>\n━━━━━━━━━━━━━━━━━━━━"]
         for i, u in enumerate(users):
             name = u.get("full_name") or u.get("username") or "Noma'lum"
             lines.append(f"{medals[i]} {name}: <b>{u['coins']:,}</b> coin")
     else:
         users = await user_db.get_top_users(10, "total_caught")
-        medals = ["🥇", "🥈", "🥉"] + ["4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+        lines = ["🏆 <b>GLOBAL TOP — ENG KO'P WAIFU</b>\n━━━━━━━━━━━━━━━━━━━━"]
         for i, u in enumerate(users):
             name = u.get("full_name") or u.get("username") or "Noma'lum"
             lines.append(f"{medals[i]} {name}: <b>{u['total_caught']}</b> waifu")
 
     lines.append("━━━━━━━━━━━━━━━━━━━━")
-    lines.append("/top coin — coin reytingi")
+    lines.append("/top coin — coin reytingi\n/gtop — guruh reytingi")
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
+
+async def cmd_gtop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Group top — catches in this group only."""
+    chat = update.effective_chat
+    if chat.type not in ("group", "supergroup"):
+        await update.message.reply_text("❌ Bu buyruq faqat guruhlarda ishlaydi.")
+        return
+
+    if not await _check_sub(update, context): return
+
+    args = context.args or []
+    mode = args[0].lower() if args else "waifu"
+
+    medals = ["🥇", "🥈", "🥉"] + ["4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+    group_top = await log_db.get_group_top(chat.id, limit=10, mode=mode)
+
+    if not group_top:
+        await update.message.reply_text(
+            f"📊 Bu guruhda hali hech kim waifu qo'lga kiritgani yo'q."
+        )
+        return
+
+    title_map = {
+        "coin": f"💰 <b>GURUH TOP — ENG BOY</b>\n<i>{chat.title}</i>",
+        "waifu": f"🏆 <b>GURUH TOP — ENG KO'P WAIFU</b>\n<i>{chat.title}</i>",
+    }
+    title = title_map.get(mode, title_map["waifu"])
+    lines = [title + "\n━━━━━━━━━━━━━━━━━━━━"]
+
+    for i, row in enumerate(group_top):
+        name = row.get("full_name") or row.get("username") or f"ID:{row['user_id']}"
+        if mode in ("coin", "coins"):
+            lines.append(f"{medals[i]} {name}: <b>{row.get('coins', 0):,}</b> coin")
+        else:
+            lines.append(f"{medals[i]} {name}: <b>{row['catch_count']}</b> waifu")
+
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
+    lines.append("/gtop coin — guruh coin top\n/top — global reyting")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
 async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_sub(update, context): return
     if not context.args:
         await update.message.reply_text("❌ Format: /search [ism]")
         return
@@ -188,10 +220,15 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [f"🔍 <b>QIDIRUV: {query}</b>\n━━━━━━━━━━━━━━━━━━━━"]
     for w in results:
         emoji = get_rarity_emoji(w["rarity"])
-        lines.append(f"{emoji} <b>{w['name']}</b> — {w['anime']} ({w['rarity']})\n   ID: <code>{w['waifu_id']}</code>")
+        lines.append(
+            f"{emoji} <b>{w['name']}</b> — {w['anime']} ({w['rarity']})\n"
+            f"   🆔 <code>{w['waifu_id']}</code>"
+        )
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
+
 async def cmd_anime(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_sub(update, context): return
     if not context.args:
         await update.message.reply_text("❌ Format: /anime [nom]")
         return
@@ -203,8 +240,9 @@ async def cmd_anime(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [f"🎌 <b>{anime.upper()}</b> waifulari\n━━━━━━━━━━━━━━━━━━━━"]
     for w in results:
         emoji = get_rarity_emoji(w["rarity"])
-        lines.append(f"{emoji} <b>{w['name']}</b> ({w['rarity']})")
+        lines.append(f"{emoji} <b>{w['name']}</b> ({w['rarity']})\n   🆔 <code>{w['waifu_id']}</code>")
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     counts = await waifu_db.count_waifus_by_rarity()
@@ -213,6 +251,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_waifus = sum(counts.values())
     market_count = await count_active_listings()
     users = await get_all_users()
+    channels = await log_db.get_required_channels_count()
 
     lines = [
         "📊 <b>BOT STATISTIKASI</b>",
@@ -220,6 +259,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👥 Foydalanuvchilar: <b>{len(users)}</b>",
         f"🎴 Jami waifular: <b>{total_waifus}</b>",
         f"🛒 Bozorda: <b>{market_count}</b>",
+        f"📢 Majburiy kanallar: <b>{channels}</b>",
         "━━━━━━━━━━━━━━━━━━━━",
         "<b>Darajalar bo'yicha:</b>"
     ]
@@ -230,12 +270,14 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     event = await get_active_event()
     if event:
-        lines.append(f"━━━━━━━━━━━━━━━━━━━━")
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
         lines.append(f"⚡ <b>Aktiv event:</b> {event['description']}")
 
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
+
 async def cmd_favorite(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_sub(update, context): return
     if not context.args:
         await update.message.reply_text("❌ Format: /favorite [kolleksiya_id]")
         return
@@ -256,9 +298,11 @@ async def cmd_favorite(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = "sevimlilarga qo'shildi ⭐" if new_state else "sevimlilardan olib tashlandi"
     await update.message.reply_text(f"✅ <b>{item['name']}</b> {status}!", parse_mode="HTML")
 
+
 async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_sub(update, context): return
     user = update.effective_user
-    logs = await log_db.get_logs(limit=10)
+    logs = await log_db.get_logs(limit=50)
     user_logs = [l for l in logs if l.get("user_id") == user.id][:10]
     if not user_logs:
         await update.message.reply_text("📋 Tarixingiz bo'sh.")
