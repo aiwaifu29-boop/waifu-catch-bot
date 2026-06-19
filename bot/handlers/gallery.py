@@ -42,6 +42,7 @@ async def cmd_collection_gallery(update: Update, context: ContextTypes.DEFAULT_T
 
     emoji = get_rarity_emoji(show_item["rarity"])
     fav_mark = "⭐ " if is_fav else ""
+    fav_hint = "⭐ <i>Sevimli waifu</i>" if is_fav else "<i>Sevimli yo'q — /favorite ID bilan belgilang</i>"
 
     caption = (
         f"🎴 <b>KOLLEKSIYA</b> — jami {total} ta\n"
@@ -51,7 +52,7 @@ async def cmd_collection_gallery(update: Update, context: ContextTypes.DEFAULT_T
         f"⭐ {show_item['rarity']}\n"
         f"🆔 <code>{show_item['collection_id']}</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{'⭐ <i>Sevimli waifu</i>' if is_fav else '<i>Sevimli yo\'q — /favorite ID bilan belgilang</i>'}"
+        f"{fav_hint}"
     )
 
     bot_username = _bot_username(context)
