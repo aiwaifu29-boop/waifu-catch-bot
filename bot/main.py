@@ -1,6 +1,5 @@
 import os
 import sys
-import asyncio
 import logging
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -26,7 +25,7 @@ from handlers.admin import (
     cmd_addadmin, cmd_removeadmin, cmd_ban_user, cmd_unban_user,
     cmd_givecoins, cmd_event, cmd_approvegroup, cmd_denygroup,
     cmd_addchannel, cmd_removechannel, cmd_panel,
-    get_addwaifu_handler
+    get_addwaifu_handler, received_rarity
 )
 from handlers.group_management import handle_new_chat_member, handle_chat_member
 from middlewares.moderation import cmd_warn, cmd_mute, cmd_unmute, cmd_kick, cmd_ban, cmd_unban
@@ -42,13 +41,11 @@ logger = logging.getLogger(__name__)
 async def post_init(application: Application):
     await init_db()
     logger.info("Database initialized")
-
     god_id = os.environ.get("GOD_ADMIN_ID")
     if god_id:
         try:
-            from database.logs import add_admin, is_admin
-            from database.db import DB_PATH
             import aiosqlite
+            from database.db import DB_PATH
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute(
                     "INSERT OR IGNORE INTO admins (user_id, username, added_by) VALUES (?, ?, ?)",
@@ -60,12 +57,7 @@ async def post_init(application: Application):
             logger.error(f"God admin setup error: {e}")
 
 
-def main():
-    token = os.environ.get("BOT_TOKEN")
-    if not token:
-        logger.error("BOT_TOKEN not found!")
-        sys.exit(1)
-
+def build_app(token: str) -> Application:
     app = Application.builder().token(token).post_init(post_init).build()
 
     app.add_handler(get_addwaifu_handler())
@@ -112,7 +104,7 @@ def main():
 
     app.add_handler(CallbackQueryHandler(handle_trade_callback, pattern="^trade_"))
     app.add_handler(CallbackQueryHandler(handle_gift_callback, pattern="^gift_"))
-    app.add_handler(CallbackQueryHandler(received_rarity_callback, pattern="^rarity_"))
+    app.add_handler(CallbackQueryHandler(received_rarity, pattern="^rarity_"))
 
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_member))
     app.add_handler(ChatMemberHandler(handle_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
@@ -122,23 +114,40 @@ def main():
         combined_message_handler
     ))
 
-    logger.info("Bot ishga tushmoqda...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    return app
 
 
 async def combined_message_handler(update: Update, context):
     from handlers.spawn import active_spawns
     chat_id = update.effective_chat.id if update.effective_chat else None
-
     if chat_id and chat_id in active_spawns:
         await handle_guess(update, context)
-
     await handle_message_count(update, context)
 
 
-async def received_rarity_callback(update, context):
-    from handlers.admin import received_rarity
-    await received_rarity(update, context)
+def main():
+    token = os.environ.get("BOT_TOKEN")
+    if not token:
+        logger.error("BOT_TOKEN not found!")
+        sys.exit(1)
+
+    webhook_url = os.environ.get("WEBHOOK_URL", "")
+    port = int(os.environ.get("PORT", 8443))
+
+    app = build_app(token)
+
+    if webhook_url:
+        logger.info(f"Starting webhook mode on port {port}")
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            webhook_url=webhook_url,
+            url_path=token,
+            drop_pending_updates=True,
+        )
+    else:
+        logger.info("Starting polling mode...")
+        app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
