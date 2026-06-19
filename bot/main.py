@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import logging
 
@@ -82,7 +83,6 @@ async def cmd_start_handler(update: Update, context):
             except ValueError:
                 pass
             else:
-                from handlers.gallery import show_user_collection_by_id
                 await show_user_collection_by_id(update, context, owner_id)
                 return
     await cmd_start(update, context)
@@ -240,10 +240,7 @@ def build_app(token: str) -> Application:
     app.add_handler(CallbackQueryHandler(handle_gallery_callback, pattern="^gal_"))
 
     # Admin panel tugmalari (ReplyKeyboard matni)
-    panel_pattern = "^(" + "|".join(
-        btn.replace("+", r"\+").replace("'", r"'").replace("(", r"\(").replace(")", r"\)")
-        for btn in ALL_PANEL_BUTTONS
-    ) + ")$"
+    panel_pattern = "^(" + "|".join(re.escape(btn) for btn in ALL_PANEL_BUTTONS) + ")$"
     app.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(panel_pattern),
         handle_panel_button
