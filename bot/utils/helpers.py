@@ -26,14 +26,16 @@ def pick_random_rarity() -> str:
     weights = [RARITY_CONFIG[r]["weight"] for r in rarities]
     return random.choices(rarities, weights=weights, k=1)[0]
 
-def format_profile(user: dict, collection_count: int, rank: int) -> str:
+def format_profile(user: dict, collection_count: int, rank: int, title: str = None) -> str:
     full_name = user['full_name'] or "Noma'lum"
+    title_line = f"🏅 Unvon: <b>{title}</b>\n" if title else ""
     return (
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 <b>PROFIL</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🆔 ID: <code>{user['user_id']}</code>\n"
         f"👤 Ism: <b>{full_name}</b>\n"
+        f"{title_line}"
         f"💰 Coin: <b>{user['coins']:,}</b>\n"
         f"🎴 Kolleksiya: <b>{collection_count}</b> ta\n"
         f"🏆 Topilgan: <b>{user['total_caught']}</b> ta\n"
@@ -71,5 +73,5 @@ def is_god_admin(user_id: int) -> bool:
     god_id = os.environ.get("GOD_ADMIN_ID", "")
     try:
         return int(god_id) == user_id
-    except:
+    except Exception:
         return False

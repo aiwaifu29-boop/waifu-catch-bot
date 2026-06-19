@@ -6,6 +6,7 @@ from database import users as user_db
 from database import logs as log_db
 from database import groups as grp_db
 from database import collections as col_db
+from database import titles as title_db
 from utils.helpers import get_rarity_emoji, is_god_admin, RARITY_ORDER, generate_waifu_id
 
 ADD_WAIFU_PHOTO, ADD_WAIFU_NAME, ADD_WAIFU_ANIME, ADD_WAIFU_RARITY = range(4)
@@ -190,10 +191,7 @@ async def cmd_addgroup_bypass(update: Update, context: ContextTypes.DEFAULT_TYPE
             (gid,)
         )
         await db.commit()
-    await update.message.reply_text(
-        f"✅ Guruh <code>{gid}</code> ro'yxatga qo'shildi.",
-        parse_mode="HTML"
-    )
+    await update.message.reply_text(f"✅ Guruh <code>{gid}</code> ro'yxatga qo'shildi.", parse_mode="HTML")
 
 
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -412,10 +410,75 @@ async def cmd_removechannel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ──────────────────────────────────────
+#  UNVON (TITLE) TIZIMI
+# ──────────────────────────────────────
+
+async def cmd_settitle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /settitle [user_id] [unvon matni]
+    Admin foydalanuvchiga maxsus unvon beradi.
+    """
+    if not await require_admin(update, context): return
+    if len(context.args or []) < 2:
+        await update.message.reply_text(
+            "❌ Format: /settitle [user_id] [unvon]\n"
+            "Misol: /settitle 123456789 🌟 Yulduz Ovchisi\n\n"
+            "O'chirish: /settitle [user_id] (unvovsiz)"
+        )
+        return
+    try:
+        uid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ User ID raqam bo'lishi kerak.")
+        return
+
+    title_text = " ".join(context.args[1:]).strip()
+    if not title_text:
+        await title_db.remove_title(uid)
+        await update.message.reply_text(f"✅ {uid} ning unvoni o'chirildi.")
+        return
+
+    await title_db.set_title(uid, title_text, update.effective_user.id)
+    await update.message.reply_text(
+        f"✅ Unvon berildi!\n"
+        f"👤 User: <code>{uid}</code>\n"
+        f"🏅 Unvon: <b>{title_text}</b>",
+        parse_mode="HTML"
+    )
+
+
+async def cmd_removetitle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, context): return
+    if not context.args:
+        await update.message.reply_text("❌ Format: /removetitle [user_id]")
+        return
+    try:
+        uid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ User ID raqam bo'lishi kerak.")
+        return
+    await title_db.remove_title(uid)
+    await update.message.reply_text(f"✅ {uid} ning unvoni o'chirildi.")
+
+
+async def cmd_titles(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Barcha unvonlar ro'yxati."""
+    if not await require_admin(update, context): return
+    all_titles = await title_db.get_all_titles()
+    if not all_titles:
+        await update.message.reply_text("📋 Hozirda hech kimga unvon berilmagan.")
+        return
+    lines = ["🏅 <b>UNVONLAR RO'YXATI</b>\n━━━━━━━━━━━━━━━━━━━━"]
+    for t in all_titles:
+        name = t.get("full_name") or t.get("username") or str(t["user_id"])
+        lines.append(f"• <code>{t['user_id']}</code> {name}\n  🏅 <b>{t['title']}</b>")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+# ──────────────────────────────────────
 #  ADMIN PANEL  (pastki klaviatura)
 # ──────────────────────────────────────
 
-# Keyboard button labels
 BTN_ADDWAIFU   = "➕ Waifu qo'shish"
 BTN_RMWAIFU    = "🗑 Waifu o'chirish"
 BTN_ADDCH      = "📢 Kanal qo'shish"
@@ -428,6 +491,7 @@ BTN_BROADCAST  = "📣 Broadcast"
 BTN_EVENT      = "⚡ Event"
 BTN_STATS      = "📊 Statistika"
 BTN_SPAWN      = "🔧 Spawn"
+BTN_TITLE      = "🏅 Unvon berish"
 BTN_ADDADMIN   = "👑 Admin qo'shish"
 BTN_RMADMIN    = "🔴 Admin o'chirish"
 BTN_CLOSE      = "🚪 Panelni yopish"
@@ -445,6 +509,7 @@ PANEL_HELP = {
     BTN_EVENT:     "⚡ <b>Event boshqaruvi</b>\n\nBoshlash: <code>/event start [tur] [x] [soat] [tavsif]</code>\nTo'xtatish: <code>/event stop</code>\n\nTurlar: double_spawn, double_coin, anime, seasonal",
     BTN_STATS:     "📊 <b>Statistika</b>\n\nBuyruq: /stats",
     BTN_SPAWN:     "🔧 <b>Spawn sozlamalari</b>\n\nKo'rish: /setspawn\nO'zgartirish: <code>/setspawn [son]</code>\nQo'lda: /spawn\n\nMinimum: 100 xabar",
+    BTN_TITLE:     "🏅 <b>Unvon berish</b>\n\nBuyruq: <code>/settitle [user_id] [unvon]</code>\nMisol: <code>/settitle 123456789 🌟 Yulduz Ovchisi</code>\n\nO'chirish: <code>/removetitle [user_id]</code>\nRo'yxat: /titles",
     BTN_ADDADMIN:  "👑 <b>Admin qo'shish</b>\n\nBuyruq: <code>/addadmin [user_id] [username]</code>\nMisol: <code>/addadmin 123456789 johndoe</code>",
     BTN_RMADMIN:   "🔴 <b>Admin o'chirish</b>\n\nBuyruq: <code>/removeadmin [user_id]</code>\nMisol: <code>/removeadmin 123456789</code>",
 }
@@ -460,6 +525,7 @@ def build_panel_reply_keyboard(god: bool) -> ReplyKeyboardMarkup:
         [BTN_BAN, BTN_UNBAN],
         [BTN_BROADCAST, BTN_EVENT],
         [BTN_STATS, BTN_SPAWN],
+        [BTN_TITLE],
     ]
     if god:
         rows.append([BTN_ADDADMIN, BTN_RMADMIN])
@@ -484,7 +550,7 @@ async def cmd_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles ReplyKeyboard button taps for admin panel."""
+    """ReplyKeyboard tugmalarini qayta ishlaydi."""
     user = update.effective_user
     text = update.message.text
 
@@ -496,10 +562,7 @@ async def handle_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     if text == BTN_CLOSE:
-        await update.message.reply_text(
-            "✅ Panel yopildi.",
-            reply_markup=ReplyKeyboardRemove()
-        )
+        await update.message.reply_text("✅ Panel yopildi.", reply_markup=ReplyKeyboardRemove())
         return
 
     help_text = PANEL_HELP.get(text, "")

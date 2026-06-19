@@ -7,6 +7,7 @@ from database import collections as col_db
 from database import waifus as waifu_db
 from database import market as market_db
 from database import logs as log_db
+from database import titles as title_db
 from database.logs import get_active_event
 from utils.helpers import get_rarity_emoji, format_profile, format_waifu_card, RARITY_ORDER
 
@@ -17,7 +18,6 @@ async def _check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool
 
 
 async def _check_ban(user_id: int) -> bool:
-    """Returns True if user is banned."""
     u = await user_db.get_user(user_id)
     return bool(u and u.get("is_banned"))
 
@@ -40,7 +40,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━━━━━━\n"
         "👤 <b>Profil</b>\n"
         "/profil — profilingiz\n"
-        "/collection — kolleksiyangiz + galerya\n"
+        "/collection — kolleksiyangiz\n"
         "/daily — kunlik mukofot\n"
         "/favorite ID — sevimlilar\n"
         "\n"
@@ -60,8 +60,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🏆 <b>Reyting</b>\n"
         "/top — global top (waifu)\n"
         "/top coin — global top (coin)\n"
-        "/gtop — guruh top (waifu)\n"
-        "/gtop coin — guruh top (coin)\n"
+        "/gtop — guruh top\n"
         "\n"
         "/stats — statistika\n"
         "/history — tarix\n"
@@ -76,7 +75,8 @@ async def cmd_profil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_user = await user_db.get_or_create_user(user.id, user.username, user.full_name)
     count = await col_db.count_collection(user.id)
     rank = await user_db.get_user_rank(user.id)
-    text = format_profile(db_user, count, rank)
+    title = await title_db.get_title(user.id)
+    text = format_profile(db_user, count, rank, title=title)
     await update.message.reply_text(text, parse_mode="HTML")
 
 
@@ -85,7 +85,6 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await user_db.get_or_create_user(user.id, user.username, user.full_name)
 
     if not await _check_sub(update, context): return
-
     if await _check_ban(user.id):
         await update.message.reply_text("🚫 Siz bloklanganlar ro'yxatasiz.")
         return
@@ -141,11 +140,9 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Global top across the whole bot."""
     if not await _check_sub(update, context): return
     args = context.args or []
     mode = args[0].lower() if args else "waifu"
-
     medals = ["🥇", "🥈", "🥉"] + ["4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
     if mode in ("coin", "coins", "boy"):
@@ -167,25 +164,19 @@ async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_gtop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Group top — catches in this group only."""
     chat = update.effective_chat
     if chat.type not in ("group", "supergroup"):
         await update.message.reply_text("❌ Bu buyruq faqat guruhlarda ishlaydi.")
         return
-
     if not await _check_sub(update, context): return
 
     args = context.args or []
     mode = args[0].lower() if args else "waifu"
-
     medals = ["🥇", "🥈", "🥉"] + ["4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
     group_top = await log_db.get_group_top(chat.id, limit=10, mode=mode)
-
     if not group_top:
-        await update.message.reply_text(
-            f"📊 Bu guruhda hali hech kim waifu qo'lga kiritgani yo'q."
-        )
+        await update.message.reply_text("📊 Bu guruhda hali hech kim waifu qo'lga kiritgani yo'q.")
         return
 
     title_map = {

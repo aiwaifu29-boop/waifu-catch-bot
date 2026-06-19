@@ -144,19 +144,28 @@ async def init_db():
                 streak INTEGER DEFAULT 0
             );
 
+            CREATE TABLE IF NOT EXISTS user_titles (
+                user_id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                given_by INTEGER,
+                given_at TEXT DEFAULT (datetime('now'))
+            );
+
             CREATE INDEX IF NOT EXISTS idx_collections_user ON collections(user_id);
             CREATE INDEX IF NOT EXISTS idx_collections_waifu ON collections(waifu_id);
             CREATE INDEX IF NOT EXISTS idx_market_status ON market(status);
             CREATE INDEX IF NOT EXISTS idx_logs_type ON logs(log_type);
         """)
 
-        # Migrate existing tables
-        try:
-            await db.execute("ALTER TABLE groups ADD COLUMN spawn_threshold INTEGER DEFAULT 100")
-        except: pass
-        try:
-            await db.execute("ALTER TABLE groups ADD COLUMN skip_member_check INTEGER DEFAULT 0")
-        except: pass
+        # Migrate existing tables safely
+        for migration in [
+            "ALTER TABLE groups ADD COLUMN spawn_threshold INTEGER DEFAULT 100",
+            "ALTER TABLE groups ADD COLUMN skip_member_check INTEGER DEFAULT 0",
+        ]:
+            try:
+                await db.execute(migration)
+            except Exception:
+                pass
 
         await db.commit()
         print("Database initialized successfully")
