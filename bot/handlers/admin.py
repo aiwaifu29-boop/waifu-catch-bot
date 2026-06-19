@@ -1,5 +1,5 @@
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, CommandHandler, filters
 from database import waifus as waifu_db
 from database import users as user_db
@@ -37,7 +37,7 @@ async def require_god(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
 async def cmd_addwaifu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, context):
         return ConversationHandler.END
-    await update.message.reply_text("📸 Waifu rasmini yuboring:")
+    await update.message.reply_text("📸 Waifu rasmini yuboring:", reply_markup=ReplyKeyboardRemove())
     return ADD_WAIFU_PHOTO
 
 
@@ -110,7 +110,7 @@ async def received_rarity(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending_waifu.pop(update.effective_user.id, None)
-    await update.message.reply_text("❌ Bekor qilindi.")
+    await update.message.reply_text("❌ Bekor qilindi.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
 
@@ -376,8 +376,7 @@ async def cmd_addchannel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args or []) < 2:
         await update.message.reply_text(
             "❌ Format: /addchannel [channel_id] [nomi]\n"
-            "Misol: /addchannel @mychannel Mening kanalim\n\n"
-            "⚠️ Bot kanalga admin bo'lishi shart emas, lekin kanal ochiq yoki bot unda bo'lishi kerak."
+            "Misol: /addchannel @mychannel Mening kanalim"
         )
         return
     channel_id = context.args[0]
@@ -413,60 +412,59 @@ async def cmd_removechannel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ──────────────────────────────────────
-#  ADMIN PANEL  (tugmali menyu)
+#  ADMIN PANEL  (pastki klaviatura)
 # ──────────────────────────────────────
 
-def build_panel_keyboard(god: bool) -> InlineKeyboardMarkup:
-    rows = [
-        [
-            InlineKeyboardButton("➕ Waifu qo'shish", callback_data="panel_addwaifu"),
-            InlineKeyboardButton("🗑 Waifu o'chirish", callback_data="panel_rmwaifu"),
-        ],
-        [
-            InlineKeyboardButton("📢 Kanal qo'shish", callback_data="panel_addch"),
-            InlineKeyboardButton("❌ Kanal o'chirish", callback_data="panel_rmch"),
-        ],
-        [
-            InlineKeyboardButton("💰 Coin berish", callback_data="panel_coins"),
-            InlineKeyboardButton("🎴 Waifu berish", callback_data="panel_givew"),
-        ],
-        [
-            InlineKeyboardButton("🚫 Ban", callback_data="panel_ban"),
-            InlineKeyboardButton("✅ Unban", callback_data="panel_unban"),
-        ],
-        [
-            InlineKeyboardButton("📣 Broadcast", callback_data="panel_broadcast"),
-            InlineKeyboardButton("⚡ Event", callback_data="panel_event"),
-        ],
-        [
-            InlineKeyboardButton("📊 Statistika", callback_data="panel_stats"),
-            InlineKeyboardButton("🔧 Spawn", callback_data="panel_spawn"),
-        ],
-    ]
-    if god:
-        rows.append([
-            InlineKeyboardButton("👑 Admin qo'shish", callback_data="panel_addadmin"),
-            InlineKeyboardButton("🔴 Admin o'chirish", callback_data="panel_rmadmin"),
-        ])
-    return InlineKeyboardMarkup(rows)
-
+# Keyboard button labels
+BTN_ADDWAIFU   = "➕ Waifu qo'shish"
+BTN_RMWAIFU    = "🗑 Waifu o'chirish"
+BTN_ADDCH      = "📢 Kanal qo'shish"
+BTN_RMCH       = "❌ Kanal o'chirish"
+BTN_COINS      = "💰 Coin berish"
+BTN_GIVEW      = "🎴 Waifu berish"
+BTN_BAN        = "🚫 Ban"
+BTN_UNBAN      = "✅ Unban"
+BTN_BROADCAST  = "📣 Broadcast"
+BTN_EVENT      = "⚡ Event"
+BTN_STATS      = "📊 Statistika"
+BTN_SPAWN      = "🔧 Spawn"
+BTN_ADDADMIN   = "👑 Admin qo'shish"
+BTN_RMADMIN    = "🔴 Admin o'chirish"
+BTN_CLOSE      = "🚪 Panelni yopish"
 
 PANEL_HELP = {
-    "panel_addwaifu":  "➕ <b>Waifu qo'shish</b>\n\nBuyruq: /addwaifu\nBot so'z bosqichma-bosqich rasm, ism, anime va darajani so'raydi.",
-    "panel_rmwaifu":   "🗑 <b>Waifu o'chirish</b>\n\nBuyruq: <code>/removewaifu [waifu_id]</code>\nMisol: <code>/removewaifu CM-123456</code>",
-    "panel_addch":     "📢 <b>Majburiy kanal qo'shish</b>\n\nBuyruq: <code>/addchannel [kanal_id] [nomi]</code>\nMisol: <code>/addchannel @mychannel Mening kanalim</code>\n\n⚠️ Bot kanal a'zosi bo'lishi kerak.",
-    "panel_rmch":      "❌ <b>Kanal o'chirish</b>\n\nBuyruq: <code>/removechannel [kanal_id]</code>\nMisol: <code>/removechannel @mychannel</code>\n\nYoki: /removechannel (ro'yxat ko'rish)",
-    "panel_coins":     "💰 <b>Coin berish</b>\n\nBuyruq: <code>/givecoins [user_id] [miqdor]</code>\nMisol: <code>/givecoins 123456789 1000</code>",
-    "panel_givew":     "🎴 <b>Waifu berish</b>\n\nBuyruq: <code>/givewaifu [user_id] [waifu_id]</code>\nMisol: <code>/givewaifu 123456789 LG-654321</code>",
-    "panel_ban":       "🚫 <b>Foydalanuvchini bloklash</b>\n\nBuyruq: <code>/banuser [user_id] [sabab]</code>\nMisol: <code>/banuser 123456789 Spam</code>",
-    "panel_unban":     "✅ <b>Blokdan chiqarish</b>\n\nBuyruq: <code>/unbanuser [user_id]</code>\nMisol: <code>/unbanuser 123456789</code>",
-    "panel_broadcast": "📣 <b>Broadcast (Barcha foydalanuvchilarga)</b>\n\nBuyruq: <code>/broadcast [xabar]</code>\nMisol: <code>/broadcast Yangi event boshlandi!</code>\n\n⚠️ Faqat God Admin uchun.",
-    "panel_event":     "⚡ <b>Event boshqaruvi</b>\n\nBoshlash: <code>/event start [tur] [multiplier] [soat] [tavsif]</code>\nTo'xtatish: <code>/event stop</code>\n\nTurlar: double_spawn, double_coin, anime, seasonal\nMisol: <code>/event start double_coin 2 4 2x Coin Event</code>",
-    "panel_stats":     "📊 <b>Statistika</b>\n\nBuyruq: /stats\nBot bo'yicha umumiy statistikani ko'rsatadi.",
-    "panel_spawn":     "🔧 <b>Spawn sozlamalari</b>\n\nHozirgi: <code>/setspawn</code> (ko'rish)\nO'zgartirish: <code>/setspawn [son]</code>\nQo'lda chiqarish: <code>/spawn</code>\n\nMinimum: 100 xabar",
-    "panel_addadmin":  "👑 <b>Admin qo'shish</b>\n\nBuyruq: <code>/addadmin [user_id] [username]</code>\nMisol: <code>/addadmin 123456789 johndoe</code>",
-    "panel_rmadmin":   "🔴 <b>Admin o'chirish</b>\n\nBuyruq: <code>/removeadmin [user_id]</code>\nMisol: <code>/removeadmin 123456789</code>",
+    BTN_ADDWAIFU:  "➕ <b>Waifu qo'shish</b>\n\nBuyruq: /addwaifu\nBot bosqichma-bosqich rasm, ism, anime va darajani so'raydi.",
+    BTN_RMWAIFU:   "🗑 <b>Waifu o'chirish</b>\n\nBuyruq: <code>/removewaifu [waifu_id]</code>\nMisol: <code>/removewaifu CM-123456</code>",
+    BTN_ADDCH:     "📢 <b>Majburiy kanal qo'shish</b>\n\nBuyruq: <code>/addchannel [kanal_id] [nomi]</code>\nMisol: <code>/addchannel @mychannel Mening kanalim</code>",
+    BTN_RMCH:      "❌ <b>Kanal o'chirish</b>\n\nBuyruq: <code>/removechannel [kanal_id]</code>\nRo'yxat: /removechannel (argumentsiz)",
+    BTN_COINS:     "💰 <b>Coin berish</b>\n\nBuyruq: <code>/givecoins [user_id] [miqdor]</code>\nMisol: <code>/givecoins 123456789 1000</code>",
+    BTN_GIVEW:     "🎴 <b>Waifu berish</b>\n\nBuyruq: <code>/givewaifu [user_id] [waifu_id]</code>\nMisol: <code>/givewaifu 123456789 LG-654321</code>",
+    BTN_BAN:       "🚫 <b>Foydalanuvchini bloklash</b>\n\nBuyruq: <code>/banuser [user_id] [sabab]</code>\nMisol: <code>/banuser 123456789 Spam</code>",
+    BTN_UNBAN:     "✅ <b>Blokdan chiqarish</b>\n\nBuyruq: <code>/unbanuser [user_id]</code>\nMisol: <code>/unbanuser 123456789</code>",
+    BTN_BROADCAST: "📣 <b>Broadcast</b>\n\nBuyruq: <code>/broadcast [xabar]</code>\nMisol: <code>/broadcast Yangi event boshlandi!</code>\n\n⚠️ Faqat God Admin uchun.",
+    BTN_EVENT:     "⚡ <b>Event boshqaruvi</b>\n\nBoshlash: <code>/event start [tur] [x] [soat] [tavsif]</code>\nTo'xtatish: <code>/event stop</code>\n\nTurlar: double_spawn, double_coin, anime, seasonal",
+    BTN_STATS:     "📊 <b>Statistika</b>\n\nBuyruq: /stats",
+    BTN_SPAWN:     "🔧 <b>Spawn sozlamalari</b>\n\nKo'rish: /setspawn\nO'zgartirish: <code>/setspawn [son]</code>\nQo'lda: /spawn\n\nMinimum: 100 xabar",
+    BTN_ADDADMIN:  "👑 <b>Admin qo'shish</b>\n\nBuyruq: <code>/addadmin [user_id] [username]</code>\nMisol: <code>/addadmin 123456789 johndoe</code>",
+    BTN_RMADMIN:   "🔴 <b>Admin o'chirish</b>\n\nBuyruq: <code>/removeadmin [user_id]</code>\nMisol: <code>/removeadmin 123456789</code>",
 }
+
+ALL_PANEL_BUTTONS = set(PANEL_HELP.keys()) | {BTN_CLOSE}
+
+
+def build_panel_reply_keyboard(god: bool) -> ReplyKeyboardMarkup:
+    rows = [
+        [BTN_ADDWAIFU, BTN_RMWAIFU],
+        [BTN_ADDCH, BTN_RMCH],
+        [BTN_COINS, BTN_GIVEW],
+        [BTN_BAN, BTN_UNBAN],
+        [BTN_BROADCAST, BTN_EVENT],
+        [BTN_STATS, BTN_SPAWN],
+    ]
+    if god:
+        rows.append([BTN_ADDADMIN, BTN_RMADMIN])
+    rows.append([BTN_CLOSE])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=False)
 
 
 async def cmd_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -479,50 +477,39 @@ async def cmd_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🛡️ <b>ADMIN PANEL</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"Salom, {role}!\n"
-        f"Kerakli amalni tanlang:",
+        f"Kerakli bo'limni tanlang 👇",
         parse_mode="HTML",
-        reply_markup=build_panel_keyboard(god)
+        reply_markup=build_panel_reply_keyboard(god)
     )
 
 
-async def handle_panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user = query.from_user
+async def handle_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles ReplyKeyboard button taps for admin panel."""
+    user = update.effective_user
+    text = update.message.text
+
+    if text not in ALL_PANEL_BUTTONS:
+        return
 
     if not await log_db.is_admin(user.id):
-        await query.answer("❌ Ruxsatingiz yo'q.", show_alert=True)
+        await update.message.reply_text("❌ Ruxsatingiz yo'q.", reply_markup=ReplyKeyboardRemove())
         return
 
-    data = query.data
-    god = is_god_admin(user.id)
+    if text == BTN_CLOSE:
+        await update.message.reply_text(
+            "✅ Panel yopildi.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return
 
-    help_text = PANEL_HELP.get(data)
+    help_text = PANEL_HELP.get(text, "")
     if help_text:
-        back_btn = InlineKeyboardMarkup([
-            [InlineKeyboardButton("⬅️ Orqaga", callback_data="panel_back")]
-        ])
-        try:
-            await query.edit_message_text(
-                help_text,
-                parse_mode="HTML",
-                reply_markup=back_btn
-            )
-        except Exception:
-            pass
-        return
-
-    if data == "panel_back":
-        try:
-            await query.edit_message_text(
-                f"🛡️ <b>ADMIN PANEL</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"Kerakli amalni tanlang:",
-                parse_mode="HTML",
-                reply_markup=build_panel_keyboard(god)
-            )
-        except Exception:
-            pass
+        god = is_god_admin(user.id)
+        await update.message.reply_text(
+            help_text,
+            parse_mode="HTML",
+            reply_markup=build_panel_reply_keyboard(god)
+        )
 
 
 def get_addwaifu_handler():

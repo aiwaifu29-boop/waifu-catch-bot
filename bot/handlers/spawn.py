@@ -1,4 +1,5 @@
 import asyncio
+import time
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -12,6 +13,24 @@ from utils.helpers import get_rarity_emoji, get_coin_reward
 SPAWN_TIMEOUT = 15 * 60  # 15 minutes
 
 active_spawns = {}
+
+# Catch rate limiting: user_id -> list of attempt timestamps
+_catch_attempts: dict[int, list[float]] = {}
+CATCH_LIMIT = 3       # max attempts
+CATCH_WINDOW = 60     # seconds
+
+
+def _is_catch_flooded(user_id: int) -> bool:
+    now = time.time()
+    attempts = _catch_attempts.get(user_id, [])
+    attempts = [t for t in attempts if now - t < CATCH_WINDOW]
+    if len(attempts) >= CATCH_LIMIT:
+        _catch_attempts[user_id] = attempts
+        return True
+    attempts.append(now)
+    _catch_attempts[user_id] = attempts
+    return False
+
 
 async def handle_message_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_chat:
@@ -32,18 +51,13 @@ async def handle_message_count(update: Update, context: ContextTypes.DEFAULT_TYP
         bot_member = await context.bot.get_chat_member(group_id, context.bot.id)
         if bot_member.status not in ("administrator", "creator"):
             return
-    except:
+    except Exception:
         return
 
     # Flood check
     from middlewares.flood import check_flood
     is_flooded = await check_flood(user.id, group_id, context)
     if is_flooded:
-        return
-
-    # Check subscription
-    from middlewares.subscription import check_subscription
-    if not await check_subscription(update, context):
         return
 
     threshold = await grp_db.get_spawn_threshold(group_id)
@@ -53,6 +67,7 @@ async def handle_message_count(update: Update, context: ContextTypes.DEFAULT_TYP
         await grp_db.reset_message_count(group_id)
         if group_id not in active_spawns:
             await do_spawn(context, group_id, chat.title)
+
 
 async def do_spawn(context: ContextTypes.DEFAULT_TYPE, group_id: int, group_name: str = None):
     multiplier = await log_db.get_event_multiplier()
@@ -77,15 +92,9 @@ async def do_spawn(context: ContextTypes.DEFAULT_TYPE, group_id: int, group_name
     await grp_db.set_spawn_state(group_id, waifu["waifu_id"], spawned_at.isoformat(), expires_at.isoformat())
 
     caption = (
-        f"✨ <b>YANGI WAIFU PAYDO BO'LDI!</b> ✨\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{emoji} Daraja: <b>{waifu['rarity']}</b>\n"
-        f"🎌 Anime: <b>{waifu['anime']}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"❓ <b>Kimligini bilib qo'lga kiriting:</b>\n"
-        f"👉 <code>/waifu [ism]</code>\n"
-        f"Misol: <code>/waifu Rukia Kuchiki</code>\n"
-        f"⏰ Vaqt: <b>15 daqiqa</b>"
+        f"✨ <b>Yangi waifu paydo bo'ldi!</b>\n"
+        f"{emoji} {waifu['rarity']} • {waifu['anime']}\n\n"
+        f"Tutish uchun /waifu buyrug'i bilan nomini yuboring"
     )
 
     await log_db.add_log("spawn", details=f"waifu_id={waifu['waifu_id']} rarity={waifu['rarity']}", group_id=group_id)
@@ -104,6 +113,7 @@ async def do_spawn(context: ContextTypes.DEFAULT_TYPE, group_id: int, group_name
 
     asyncio.create_task(expire_spawn(context, group_id, SPAWN_TIMEOUT))
 
+
 async def expire_spawn(context: ContextTypes.DEFAULT_TYPE, group_id: int, timeout: int):
     await asyncio.sleep(timeout)
     if group_id in active_spawns:
@@ -113,12 +123,39 @@ async def expire_spawn(context: ContextTypes.DEFAULT_TYPE, group_id: int, timeou
         try:
             await context.bot.send_message(
                 chat_id=group_id,
-                text=f"⌛ Vaqt tugadi! Waifu yo'qoldi.\n"
-                     f"👤 Bu <b>{waifu_name}</b> edi.",
+                text=f"⌛ Vaqt tugadi! <b>{waifu_name}</b> yo'qoldi.",
                 parse_mode="HTML"
             )
-        except:
+        except Exception:
             pass
+
+
+def _name_matches(guess: str, correct: str) -> bool:
+    """
+    Returns True if guess matches the waifu name or part of it.
+    - Exact match (case-insensitive)
+    - Any word of the name (min 2 chars)
+    - Guess is contained in the name
+    - Name starts with guess
+    """
+    guess = guess.lower().strip()
+    correct = correct.lower().strip()
+    if not guess:
+        return False
+    if guess == correct:
+        return True
+    if correct.startswith(guess) and len(guess) >= 2:
+        return True
+    if guess in correct and len(guess) >= 3:
+        return True
+    # Match any single word from the name
+    name_words = [w for w in correct.split() if len(w) >= 2]
+    guess_words = guess.split()
+    for gw in guess_words:
+        if len(gw) >= 2 and any(gw == nw or nw.startswith(gw) for nw in name_words):
+            return True
+    return False
+
 
 async def cmd_waifu_catch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /waifu [name] command for catching waifus in groups."""
@@ -130,13 +167,15 @@ async def cmd_waifu_catch(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     group_id = chat.id
+    user = update.effective_user
+
     if group_id not in active_spawns:
         await update.message.reply_text("⚠️ Hozirda hech qanday waifu paydo bo'lmagan.")
         return
 
     if not context.args:
         await update.message.reply_text(
-            "❌ Format: <code>/waifu [ism]</code>\nMisol: <code>/waifu Rukia Kuchiki</code>",
+            "❌ Format: <code>/waifu [ism]</code>\nMisol: <code>/waifu Rukia</code>",
             parse_mode="HTML"
         )
         return
@@ -147,16 +186,20 @@ async def cmd_waifu_catch(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⌛ Bu waifu allaqachon yo'qolgan!")
         return
 
-    user = update.effective_user
-    guess = " ".join(context.args).lower().strip()
-    correct = spawn["waifu_name"].lower().strip()
+    # Flood/rate limit check for catch attempts
+    if _is_catch_flooded(user.id):
+        await update.message.reply_text(
+            f"⏳ Juda tez! {CATCH_WINDOW} soniya ichida {CATCH_LIMIT} tadan ko'p urinish mumkin emas."
+        )
+        return
 
-    # Flexible matching
-    if not (guess == correct or correct.startswith(guess) or guess in correct or
-            all(part in correct for part in guess.split() if len(part) > 2)):
+    guess = " ".join(context.args)
+
+    if not _name_matches(guess, spawn["waifu_name"]):
         await update.message.reply_text("❌ Noto'g'ri! Yana urinib ko'ring.")
         return
 
+    # Correct! Remove spawn
     active_spawns.pop(group_id, None)
     await grp_db.clear_spawn_state(group_id)
 
@@ -179,8 +222,7 @@ async def cmd_waifu_catch(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🎉 {mention} waifuni qo'lga kiritdi!\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"{emoji} <b>{waifu['name']}</b>\n"
-        f"🎌 {waifu['anime']}\n"
-        f"⭐ {waifu['rarity']}\n"
+        f"🎌 {waifu['anime']} • ⭐ {waifu['rarity']}\n"
         f"🆔 <code>{waifu['waifu_id']}</code>\n"
         f"💰 +{coin_reward} coin!\n"
         f"━━━━━━━━━━━━━━━━━━━━",

@@ -12,7 +12,7 @@ from telegram.ext import (
 
 from database.db import init_db
 from handlers.spawn import handle_message_count, cmd_waifu_catch
-from handlers.gallery import cmd_collection_gallery, handle_gallery_callback
+from handlers.gallery import cmd_collection_gallery, handle_gallery_callback, show_user_collection_by_id
 from handlers.user_commands import (
     cmd_start, cmd_help, cmd_profil,
     cmd_daily, cmd_top, cmd_gtop, cmd_search, cmd_anime, cmd_stats,
@@ -27,7 +27,7 @@ from handlers.admin import (
     cmd_givecoins, cmd_givewaifu, cmd_event, cmd_approvegroup, cmd_denygroup,
     cmd_addchannel, cmd_removechannel, cmd_panel, cmd_setspawn,
     cmd_addgroup_bypass, get_addwaifu_handler, received_rarity,
-    handle_panel_callback
+    handle_panel_button, ALL_PANEL_BUTTONS
 )
 from handlers.group_management import handle_new_chat_member, handle_chat_member
 from middlewares.moderation import cmd_warn, cmd_mute, cmd_unmute, cmd_kick, cmd_ban, cmd_unban
@@ -69,6 +69,23 @@ PRIVATE_COMMANDS = [
 ]
 
 
+async def cmd_start_handler(update: Update, context):
+    """Handle /start with optional deep link parameters."""
+    args = context.args or []
+    if args:
+        param = args[0]
+        # Deep link: /start col_USER_ID  — show that user's collection
+        if param.startswith("col_"):
+            try:
+                owner_id = int(param[4:])
+            except ValueError:
+                pass
+            else:
+                await show_user_collection_by_id(update, context, owner_id)
+                return
+    await cmd_start(update, context)
+
+
 async def post_init(application: Application):
     await init_db()
     logger.info("Database initialized")
@@ -99,11 +116,13 @@ async def post_init(application: Application):
 def build_app(token: str) -> Application:
     app = Application.builder().token(token).post_init(post_init).build()
 
-    # Admin conversation handler (must be first)
+    # Admin conversation handler (must be first — catches /addwaifu flow)
     app.add_handler(get_addwaifu_handler())
 
+    # Start (with deep link support)
+    app.add_handler(CommandHandler("start", cmd_start_handler))
+
     # User commands
-    app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("profil", cmd_profil))
     app.add_handler(CommandHandler("collection", cmd_collection_gallery))
@@ -157,17 +176,24 @@ def build_app(token: str) -> Application:
 
     # Callbacks — order matters (most specific first)
     app.add_handler(CallbackQueryHandler(handle_subscription_check, pattern="^sub_check$"))
-    app.add_handler(CallbackQueryHandler(handle_panel_callback, pattern="^panel_"))
+    app.add_handler(CallbackQueryHandler(received_rarity, pattern="^rarity_"))
     app.add_handler(CallbackQueryHandler(handle_trade_callback, pattern="^trade_"))
     app.add_handler(CallbackQueryHandler(handle_gift_callback, pattern="^gift_"))
-    app.add_handler(CallbackQueryHandler(received_rarity, pattern="^rarity_"))
     app.add_handler(CallbackQueryHandler(handle_gallery_callback, pattern="^gal_"))
+
+    # Admin panel ReplyKeyboard button handler (text messages matching panel buttons)
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^(" + "|".join(
+            btn.replace("+", r"\+").replace("'", r"'") for btn in ALL_PANEL_BUTTONS
+        ) + ")$"),
+        handle_panel_button
+    ))
 
     # Group join events
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_member))
     app.add_handler(ChatMemberHandler(handle_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
 
-    # Message counter (groups only)
+    # Message counter (groups only) — must be last
     app.add_handler(MessageHandler(
         filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND,
         handle_message_count

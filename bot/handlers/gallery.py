@@ -1,3 +1,4 @@
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import ContextTypes
 from database import collections as col_db
@@ -6,8 +7,15 @@ from database import waifus as waifu_db
 from utils.helpers import get_rarity_emoji, RARITY_ORDER
 
 
+def _bot_username(context) -> str:
+    try:
+        return context.bot.username or ""
+    except Exception:
+        return ""
+
+
 # ─────────────────────────────────────────────
-#  USER COLLECTION
+#  USER COLLECTION (own)
 # ─────────────────────────────────────────────
 
 async def cmd_collection_gallery(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -27,17 +35,41 @@ async def cmd_collection_gallery(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     total = len(items)
-    # Start from favorite waifu if exists, else index 0
     start_index = 0
     for i, it in enumerate(items):
         if it.get("is_favorite"):
             start_index = i
             break
 
-    await send_collection_page(update, context, user.id, items, start_index, total)
+    await send_collection_page(update, context, user.id, items, start_index, total, is_owner=True)
 
 
-async def send_collection_page(update, context, user_id: int, items: list, index: int, total: int):
+async def show_user_collection_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE, owner_id: int):
+    """Show another user's collection (from deep link or share)."""
+    owner = await user_db.get_user(owner_id)
+    if not owner:
+        if update.message:
+            await update.message.reply_text("❌ Foydalanuvchi topilmadi.")
+        return
+
+    items = await col_db.get_collection(owner_id, limit=200)
+    if not items:
+        name = owner.get("full_name") or owner.get("username") or str(owner_id)
+        if update.message:
+            await update.message.reply_text(f"📦 <b>{name}</b>ning kolleksiyasi bo'sh.", parse_mode="HTML")
+        return
+
+    total = len(items)
+    start_index = 0
+    for i, it in enumerate(items):
+        if it.get("is_favorite"):
+            start_index = i
+            break
+
+    await send_collection_page(update, context, owner_id, items, start_index, total, is_owner=False)
+
+
+async def send_collection_page(update, context, user_id: int, items: list, index: int, total: int, is_owner: bool = True):
     item = items[index]
     emoji = get_rarity_emoji(item["rarity"])
     fav = "⭐ " if item.get("is_favorite") else ""
@@ -55,8 +87,13 @@ async def send_collection_page(update, context, user_id: int, items: list, index
     if total > 6:
         list_lines.append("   ...")
 
+    owner = await user_db.get_user(user_id)
+    owner_name = ""
+    if owner:
+        owner_name = owner.get("full_name") or owner.get("username") or str(user_id)
+
     caption = (
-        f"🎴 <b>KOLLEKSIYA</b> [{index+1}/{total}]\n"
+        f"🎴 <b>{'KOLLEKSIYA' if is_owner else owner_name + ' kolleksiyasi'}</b> [{index+1}/{total}]\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"{emoji} {fav}<b>{item['name']}</b>\n"
         f"🎌 {item['anime']}\n"
@@ -73,16 +110,31 @@ async def send_collection_page(update, context, user_id: int, items: list, index
     if index < total - 1:
         nav_row.append(InlineKeyboardButton("➡️", callback_data=f"gal_{user_id}_{index+1}"))
 
-    fav_label = "⭐ Sevimli" if not item.get("is_favorite") else "💔 Olib tashlash"
-    action_row = [
-        InlineKeyboardButton(fav_label, callback_data=f"gal_fav_{user_id}_{index}_{item['collection_id']}"),
-        InlineKeyboardButton("❌ Yopish", callback_data="gal_close"),
-    ]
-    gallery_row = [
-        InlineKeyboardButton("🗂 Bot Galereyasi", callback_data="gal_pub_0"),
-    ]
+    rows = [nav_row]
 
-    keyboard = InlineKeyboardMarkup([nav_row, action_row, gallery_row])
+    if is_owner:
+        fav_label = "⭐ Sevimli" if not item.get("is_favorite") else "💔 Olib tashlash"
+        action_row = [
+            InlineKeyboardButton(fav_label, callback_data=f"gal_fav_{user_id}_{index}_{item['collection_id']}"),
+            InlineKeyboardButton("❌ Yopish", callback_data="gal_close"),
+        ]
+        rows.append(action_row)
+
+        # Share button — deep link to view this collection
+        bot_username = _bot_username(context)
+        if bot_username:
+            share_url = f"https://t.me/{bot_username}?start=col_{user_id}"
+            share_row = [
+                InlineKeyboardButton("🔗 Ulashish", url=share_url),
+                InlineKeyboardButton("🗂 Bot Galereyasi", callback_data="gal_pub_0"),
+            ]
+        else:
+            share_row = [InlineKeyboardButton("🗂 Bot Galereyasi", callback_data="gal_pub_0")]
+        rows.append(share_row)
+    else:
+        rows.append([InlineKeyboardButton("❌ Yopish", callback_data="gal_close")])
+
+    keyboard = InlineKeyboardMarkup(rows)
 
     if hasattr(update, "message") and update.message:
         try:
@@ -140,11 +192,10 @@ async def send_public_gallery_page(update, context, offset: int):
         f"🗂 <b>BOT GALEREYASI</b> [{offset+1}/{total_count}]\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"{emoji} <b>{w['name']}</b>\n"
-        f"🎌 Anime: <b>{w['anime']}</b>\n"
-        f"⭐ Tur: <b>{w['rarity']}</b>\n"
-        f"🆔 ID: <code>{w['waifu_id']}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"<i>Har kim ko'rishi mumkin</i>"
+        f"🎌 {w['anime']}\n"
+        f"⭐ {w['rarity']}\n"
+        f"🆔 <code>{w['waifu_id']}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━"
     )
 
     nav_row = []
@@ -229,7 +280,7 @@ async def handle_gallery_callback(update: Update, context: ContextTypes.DEFAULT_
         items = await col_db.get_collection(owner_id, limit=200)
         if items:
             index = max(0, min(index, len(items) - 1))
-            await send_collection_page(update, context, owner_id, items, index, len(items))
+            await send_collection_page(update, context, owner_id, items, index, len(items), is_owner=True)
         return
 
     # User collection navigation: gal_{user_id}_{index}
@@ -243,9 +294,8 @@ async def handle_gallery_callback(update: Update, context: ContextTypes.DEFAULT_
         except (IndexError, ValueError):
             return
 
-        if query.from_user.id != owner_id:
-            await query.answer("Bu sizning kolleksiyangiz emas!", show_alert=True)
-            return
+        viewer_id = query.from_user.id
+        is_owner = (viewer_id == owner_id)
 
         items = await col_db.get_collection(owner_id, limit=200)
         if not items:
@@ -253,4 +303,4 @@ async def handle_gallery_callback(update: Update, context: ContextTypes.DEFAULT_
             return
 
         index = max(0, min(index, len(items) - 1))
-        await send_collection_page(update, context, owner_id, items, index, len(items))
+        await send_collection_page(update, context, owner_id, items, index, len(items), is_owner=is_owner)
