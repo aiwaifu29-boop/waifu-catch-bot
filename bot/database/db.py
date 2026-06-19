@@ -1,7 +1,5 @@
 import aiosqlite
 import os
-import asyncio
-from datetime import datetime
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "waifu_bot.db")
 
@@ -60,9 +58,7 @@ async def init_db():
                 receiver_waifu TEXT NOT NULL,
                 status TEXT DEFAULT 'pending',
                 created_at TEXT DEFAULT (datetime('now')),
-                completed_at TEXT,
-                FOREIGN KEY (initiator_id) REFERENCES users(user_id),
-                FOREIGN KEY (receiver_id) REFERENCES users(user_id)
+                completed_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS gifts (
@@ -72,9 +68,7 @@ async def init_db():
                 waifu_id TEXT NOT NULL,
                 collection_id INTEGER NOT NULL,
                 status TEXT DEFAULT 'pending',
-                created_at TEXT DEFAULT (datetime('now')),
-                FOREIGN KEY (sender_id) REFERENCES users(user_id),
-                FOREIGN KEY (receiver_id) REFERENCES users(user_id)
+                created_at TEXT DEFAULT (datetime('now'))
             );
 
             CREATE TABLE IF NOT EXISTS market (
@@ -86,8 +80,7 @@ async def init_db():
                 status TEXT DEFAULT 'active',
                 listed_at TEXT DEFAULT (datetime('now')),
                 sold_at TEXT,
-                buyer_id INTEGER,
-                FOREIGN KEY (seller_id) REFERENCES users(user_id)
+                buyer_id INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS admins (
@@ -121,15 +114,17 @@ async def init_db():
                 group_id INTEGER PRIMARY KEY,
                 group_name TEXT,
                 message_count INTEGER DEFAULT 0,
-                is_approved INTEGER DEFAULT 0,
+                is_approved INTEGER DEFAULT 1,
                 approved_by INTEGER,
                 approved_at TEXT,
-                added_at TEXT DEFAULT (datetime('now'))
+                added_at TEXT DEFAULT (datetime('now')),
+                spawn_threshold INTEGER DEFAULT 100,
+                skip_member_check INTEGER DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS required_channels (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                channel_id TEXT NOT NULL,
+                channel_id TEXT NOT NULL UNIQUE,
                 channel_name TEXT,
                 type TEXT DEFAULT 'channel',
                 added_by INTEGER,
@@ -140,8 +135,7 @@ async def init_db():
                 group_id INTEGER PRIMARY KEY,
                 waifu_id TEXT,
                 spawned_at TEXT,
-                expires_at TEXT,
-                FOREIGN KEY (waifu_id) REFERENCES waifus(waifu_id)
+                expires_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS daily_rewards (
@@ -155,5 +149,14 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_market_status ON market(status);
             CREATE INDEX IF NOT EXISTS idx_logs_type ON logs(log_type);
         """)
+
+        # Migrate existing tables
+        try:
+            await db.execute("ALTER TABLE groups ADD COLUMN spawn_threshold INTEGER DEFAULT 100")
+        except: pass
+        try:
+            await db.execute("ALTER TABLE groups ADD COLUMN skip_member_check INTEGER DEFAULT 0")
+        except: pass
+
         await db.commit()
         print("Database initialized successfully")
