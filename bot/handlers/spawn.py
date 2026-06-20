@@ -253,3 +253,5 @@ async def cmd_waifu_catch(update: Update, context: ContextTypes.DEFAULT_TYPE):
       "━━━━━━━━━━━━━━━━━━━━",
       parse_mode="HTML"
     )
+    stk = get_catch_sticker(spawn["rarity"])
+    await send_stk(context.bot, group_id, stk)
