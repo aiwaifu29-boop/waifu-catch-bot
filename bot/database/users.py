@@ -85,6 +85,12 @@ async def get_all_users():
         rows = await cursor.fetchall()
         return [r["user_id"] for r in rows]
 
+async def update_total_caught(user_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE users SET total_caught = total_caught + 1 WHERE user_id=?", (user_id,))
+        await db.commit()
+
+
 async def add_warn(user_id: int) -> int:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE users SET warn_count = warn_count + 1 WHERE user_id=?", (user_id,))
