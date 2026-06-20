@@ -10,6 +10,7 @@ from database import logs as log_db
 from database import titles as title_db
 from database.logs import get_active_event
 from utils.helpers import get_rarity_emoji, format_profile, format_waifu_card, RARITY_ORDER
+from utils.stickers import get_daily_sticker, send_sticker as send_stk
 
 
 async def _check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -112,6 +113,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await update.message.reply_text(text, parse_mode="HTML")
+    stk = get_daily_sticker(streak)
+    await send_stk(context.bot, update.effective_chat.id, stk)
 
 
 async def cmd_profil(update: Update, context: ContextTypes.DEFAULT_TYPE):
