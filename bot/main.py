@@ -144,14 +144,7 @@ async def post_init(application: Application):
     god_id = os.environ.get("GOD_ADMIN_ID")
     if god_id:
         try:
-            import aiosqlite
-            from database.db import DB_PATH
-            async with aiosqlite.connect(DB_PATH) as db:
-                await db.execute(
-                    "INSERT OR REPLACE INTO admins (user_id, username, added_by, role) VALUES (?,?,?,?)",
-                    (int(god_id), "god_admin", int(god_id), "god")
-                )
-                await db.commit()
+            await log_db.register_god_admin(int(god_id))
             logger.info(f"God admin {god_id} registered")
         except Exception as e:
             logger.error(f"God admin setup error: {e}")
