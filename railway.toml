@@ -1,7 +1,14 @@
 [build]
-builder = "dockerfile"
-dockerfilePath = "Dockerfile"
+  builder = "dockerfile"
+  dockerfilePath = "Dockerfile"
 
-[deploy]
-restartPolicyType = "always"
-restartPolicyMaxRetries = 10
+  [deploy]
+  restartPolicyType = "always"
+  restartPolicyMaxRetries = 10
+
+  # Railway da persistent volume qo'shish uchun:
+  # 1. Railway dashboard -> your service -> Volumes
+  # 2. Mount path: /data
+  # 3. Keyin bu env ni qo'shing: DB_PATH=/data/waifu_bot.db
+  # Agar volume yo'q bo'lsa, bot/waifu_bot.db ishlatiladi (restart da o'chishi mumkin)
+  
