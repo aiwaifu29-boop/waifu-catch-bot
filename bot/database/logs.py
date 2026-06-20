@@ -1,183 +1,154 @@
-import aiosqlite
-from .db import DB_PATH
+import asyncpg
+  from .db import get_pool
 
 
-async def add_log(log_type: str, user_id: int = None, details: str = None, group_id: int = None):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO logs (log_type, user_id, details, group_id) VALUES (?, ?, ?, ?)",
-            (log_type, user_id, details, group_id)
-        )
-        await db.commit()
+  async def add_log(log_type: str, user_id: int = None, details: str = None, group_id: int = None):
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          await conn.execute(
+              "INSERT INTO logs (log_type, user_id, details, group_id) VALUES ($1,$2,$3,$4)",
+              log_type, user_id, details, group_id
+          )
 
 
-async def get_logs(log_type: str = None, limit: int = 20):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        if log_type:
-            cursor = await db.execute(
-                "SELECT * FROM logs WHERE log_type=? ORDER BY created_at DESC LIMIT ?",
-                (log_type, limit)
-            )
-        else:
-            cursor = await db.execute(
-                "SELECT * FROM logs ORDER BY created_at DESC LIMIT ?", (limit,)
-            )
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+  async def get_logs(log_type: str = None, limit: int = 20):
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          if log_type:
+              rows = await conn.fetch(
+                  "SELECT * FROM logs WHERE log_type=$1 ORDER BY created_at DESC LIMIT $2",
+                  log_type, limit
+              )
+          else:
+              rows = await conn.fetch(
+                  "SELECT * FROM logs ORDER BY created_at DESC LIMIT $1", limit
+              )
+          return [dict(r) for r in rows]
 
 
-async def get_event_multiplier() -> float:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT multiplier FROM events WHERE is_active=1 ORDER BY started_at DESC LIMIT 1"
-        )
-        row = await cursor.fetchone()
-        return float(row["multiplier"]) if row else 1.0
+  async def get_event_multiplier() -> float:
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          val = await conn.fetchval(
+              "SELECT multiplier FROM events WHERE is_active=1 ORDER BY started_at DESC LIMIT 1"
+          )
+          return float(val) if val else 1.0
 
 
-async def get_active_event():
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT * FROM events WHERE is_active=1 ORDER BY started_at DESC LIMIT 1"
-        )
-        row = await cursor.fetchone()
-        return dict(row) if row else None
+  async def get_active_event():
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          row = await conn.fetchrow(
+              "SELECT * FROM events WHERE is_active=1 ORDER BY started_at DESC LIMIT 1"
+          )
+          return dict(row) if row else None
 
 
-async def start_event(event_type: str, multiplier: float, description: str, started_by: int, hours: int = 2):
-    from datetime import datetime, timedelta
-    ends_at = (datetime.now() + timedelta(hours=hours)).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE events SET is_active=0")
-        await db.execute(
-            """INSERT INTO events (event_type, multiplier, description, started_by, ends_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (event_type, multiplier, description, started_by, ends_at)
-        )
-        await db.commit()
+  async def start_event(event_type: str, multiplier: float, description: str,
+                        started_by: int, hours: int = 2):
+      from datetime import datetime, timedelta
+      ends_at = datetime.now() + timedelta(hours=hours)
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          await conn.execute("UPDATE events SET is_active=0")
+          await conn.execute(
+              "INSERT INTO events (event_type, multiplier, description, started_by, ends_at) "
+              "VALUES ($1,$2,$3,$4,$5)",
+              event_type, multiplier, description, started_by, ends_at
+          )
 
 
-async def stop_event():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE events SET is_active=0")
-        await db.commit()
+  async def stop_event():
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          await conn.execute("UPDATE events SET is_active=0")
 
 
-async def get_daily_reward(user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT * FROM daily_rewards WHERE user_id=?", (user_id,))
-        row = await cursor.fetchone()
-        return dict(row) if row else None
+  async def get_daily_reward(user_id: int):
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          row = await conn.fetchrow("SELECT * FROM daily_rewards WHERE user_id=$1", user_id)
+          return dict(row) if row else None
 
 
-async def set_daily_reward(user_id: int, streak: int):
-    from datetime import datetime
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """INSERT OR REPLACE INTO daily_rewards (user_id, last_daily, streak)
-               VALUES (?, ?, ?)""",
-            (user_id, datetime.now().isoformat(), streak)
-        )
-        await db.commit()
+  async def set_daily_reward(user_id: int, streak: int):
+      from datetime import datetime
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          await conn.execute(
+              "INSERT INTO daily_rewards (user_id, last_daily, streak) VALUES ($1, NOW(), $2) "
+              "ON CONFLICT (user_id) DO UPDATE SET last_daily=NOW(), streak=$2",
+              user_id, streak
+          )
 
 
-async def get_admins():
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT * FROM admins ORDER BY role, added_at")
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+  async def get_admins():
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          rows = await conn.fetch("SELECT * FROM admins ORDER BY role, added_at")
+          return [dict(r) for r in rows]
 
 
-async def add_admin(user_id: int, username: str, added_by: int, role: str = "admin"):
-    """role: god | admin | sub"""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR REPLACE INTO admins (user_id, username, added_by, role) VALUES (?, ?, ?, ?)",
-            (user_id, username, added_by, role)
-        )
-        await db.commit()
+  async def add_admin(user_id: int, username: str, added_by: int, role: str = "admin"):
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          await conn.execute(
+              "INSERT INTO admins (user_id, username, added_by, role) VALUES ($1,$2,$3,$4) "
+              "ON CONFLICT (user_id) DO UPDATE SET username=$2, added_by=$3, role=$4",
+              user_id, username, added_by, role
+          )
 
 
-async def remove_admin(user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM admins WHERE user_id=?", (user_id,))
-        await db.commit()
+  async def remove_admin(user_id: int):
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          await conn.execute("DELETE FROM admins WHERE user_id=$1", user_id)
 
 
-async def is_admin(user_id: int) -> bool:
-    from utils.helpers import is_god_admin
-    if is_god_admin(user_id):
-        return True
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute("SELECT 1 FROM admins WHERE user_id=?", (user_id,))
-        row = await cursor.fetchone()
-        return row is not None
+  async def is_admin(user_id: int) -> bool:
+      from utils.helpers import is_god_admin
+      if is_god_admin(user_id):
+          return True
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          row = await conn.fetchrow("SELECT 1 FROM admins WHERE user_id=$1", user_id)
+          return row is not None
 
 
-async def get_admin_role(user_id: int) -> str:
-    """Qaytaradi: god | admin | sub | None"""
-    from utils.helpers import is_god_admin
-    if is_god_admin(user_id):
-        return "god"
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT role FROM admins WHERE user_id=?", (user_id,))
-        row = await cursor.fetchone()
-        if row:
-            return row["role"] or "admin"
-        return None
+  async def get_admin_role(user_id: int) -> str:
+      from utils.helpers import is_god_admin
+      if is_god_admin(user_id):
+          return "god"
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          row = await conn.fetchrow("SELECT role FROM admins WHERE user_id=$1", user_id)
+          if row:
+              return row['role'] or "admin"
+          return None
 
 
-async def is_sub_admin_only(user_id: int) -> bool:
-    """True agar faqat sub-admin bo'lsa"""
-    role = await get_admin_role(user_id)
-    return role == "sub"
+  async def is_sub_admin_only(user_id: int) -> bool:
+      role = await get_admin_role(user_id)
+      return role == "sub"
 
 
-async def is_full_admin(user_id: int) -> bool:
-    """God admin yoki to'liq admin (sub emas)"""
-    role = await get_admin_role(user_id)
-    return role in ("god", "admin")
+  async def is_full_admin(user_id: int) -> bool:
+      role = await get_admin_role(user_id)
+      return role in ("god", "admin")
 
 
-async def get_group_top(group_id: int, limit: int = 10, mode: str = "waifu"):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        if mode in ("coin", "coins"):
-            cursor = await db.execute(
-                """SELECT u.user_id, u.full_name, u.username, u.coins,
-                          COUNT(l.id) as catch_count
-                   FROM logs l
-                   JOIN users u ON l.user_id = u.user_id
-                   WHERE l.group_id=? AND l.log_type='catch' AND u.is_banned=0
-                   GROUP BY l.user_id
-                   ORDER BY u.coins DESC
-                   LIMIT ?""",
-                (group_id, limit)
-            )
-        else:
-            cursor = await db.execute(
-                """SELECT u.user_id, u.full_name, u.username, u.coins,
-                          COUNT(l.id) as catch_count
-                   FROM logs l
-                   JOIN users u ON l.user_id = u.user_id
-                   WHERE l.group_id=? AND l.log_type='catch' AND u.is_banned=0
-                   GROUP BY l.user_id
-                   ORDER BY catch_count DESC
-                   LIMIT ?""",
-                (group_id, limit)
-            )
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+  async def get_required_channels_count() -> int:
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          return await conn.fetchval("SELECT COUNT(*) FROM required_channels") or 0
 
 
-async def get_required_channels_count() -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute("SELECT COUNT(*) FROM required_channels")
-        row = await cursor.fetchone()
-        return row[0] if row else 0
+  async def register_god_admin(god_id: int):
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          await conn.execute(
+              "INSERT INTO admins (user_id, username, added_by, role) VALUES ($1,'god_admin',$1,'god') "
+              "ON CONFLICT (user_id) DO UPDATE SET role='god'",
+              god_id
+          )
+  
