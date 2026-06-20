@@ -14,7 +14,6 @@ import asyncio
 
   active_spawns = {}
 
-  # Catch rate limiting: user_id -> list of attempt timestamps
   _catch_attempts: dict = {}
   CATCH_LIMIT = 3
   CATCH_WINDOW = 60
@@ -34,35 +33,30 @@ import asyncio
 
   async def restore_active_spawns(context):
       """Server restart bo'lganda DB dagi aktiv spawnlarni xotiraga qayta yuklaydi."""
-      import aiosqlite
-      from database.db import DB_PATH
       now = datetime.now()
       restored = 0
       try:
-          async with aiosqlite.connect(DB_PATH) as db:
-              db.row_factory = aiosqlite.Row
-              cursor = await db.execute("SELECT * FROM spawn_state WHERE waifu_id IS NOT NULL")
-              rows = await cursor.fetchall()
+          pool = await grp_db.get_pool()
+          async with pool.acquire() as conn:
+              rows = await conn.fetch(
+                  "SELECT * FROM spawn_state WHERE waifu_id IS NOT NULL"
+              )
+              expired_ids = []
               for row in rows:
-                  group_id = row["group_id"]
-                  waifu_id = row["waifu_id"]
-                  expires_at_str = row["expires_at"]
-                  if not expires_at_str:
+                  group_id = row['group_id']
+                  waifu_id = row['waifu_id']
+                  expires_at = row['expires_at']  # asyncpg returns datetime directly
+                  if not expires_at:
+                      expired_ids.append(group_id)
                       continue
-                  try:
-                      expires_at = datetime.fromisoformat(expires_at_str)
-                  except Exception:
+                  # Muddati o'tgan
+                  if expires_at.replace(tzinfo=None) <= now:
+                      expired_ids.append(group_id)
                       continue
-                  # Muddati o'tgan bo'lsa tozalab ketamiz
-                  if expires_at <= now:
-                      await db.execute("DELETE FROM spawn_state WHERE group_id=?", (group_id,))
-                      continue
-                  # Hali vaqti bor — waifuni DB dan olamiz
                   waifu = await waifu_db.get_waifu(waifu_id)
                   if not waifu:
-                      await db.execute("DELETE FROM spawn_state WHERE group_id=?", (group_id,))
+                      expired_ids.append(group_id)
                       continue
-                  # Xotiraga qayta yuklaymiz
                   multiplier = await log_db.get_event_multiplier()
                   active_spawns[group_id] = {
                       "waifu_id": waifu["waifu_id"],
@@ -70,18 +64,18 @@ import asyncio
                       "file_id": waifu["file_id"],
                       "rarity": waifu["rarity"],
                       "anime": waifu["anime"],
-                      "expires_at": expires_at,
+                      "expires_at": expires_at.replace(tzinfo=None),
                       "coin_multiplier": multiplier,
                   }
-                  # Qolgan vaqtni hisoblab expire task ni qayta ishga tushuramiz
-                  remaining = (expires_at - now).total_seconds()
+                  remaining = (expires_at.replace(tzinfo=None) - now).total_seconds()
                   asyncio.create_task(expire_spawn(context, group_id, int(remaining)))
                   restored += 1
-              await db.commit()
+              for gid in expired_ids:
+                  await conn.execute("DELETE FROM spawn_state WHERE group_id=$1", gid)
       except Exception as e:
-          print(f"restore_active_spawns error: {e}")
+          print("restore_active_spawns error:", e)
       if restored:
-          print(f"Restored {restored} active spawn(s) from DB")
+          print("Restored", restored, "active spawn(s) from DB")
 
 
   async def handle_message_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -90,32 +84,23 @@ import asyncio
       chat = update.effective_chat
       if chat.type not in ("group", "supergroup"):
           return
-
       group_id = chat.id
       user = update.effective_user
       if not user or user.is_bot:
           return
-
       await user_db.get_or_create_user(user.id, user.username, user.full_name)
-
-      # Bot admin ekanini tekshirish
       try:
           bot_member = await context.bot.get_chat_member(group_id, context.bot.id)
           if bot_member.status not in ("administrator", "creator"):
               return
       except Exception:
           return
-
-      # Flood tekshiruvi
       from middlewares.flood import check_flood
       is_flooded = await check_flood(user.id, group_id, context)
       if is_flooded:
-          return  # Flood ostidagi user ning xabarlari hisoblanmaydi
-
-      # Spawn hisoblagichi
+          return
       threshold = await grp_db.get_spawn_threshold(group_id)
       count = await grp_db.increment_message_count(group_id)
-
       if count >= threshold:
           await grp_db.reset_message_count(group_id)
           if group_id not in active_spawns:
@@ -127,11 +112,9 @@ import asyncio
       waifu = await waifu_db.get_random_waifu_by_rarity_weight()
       if not waifu:
           return
-
       emoji = get_rarity_emoji(waifu["rarity"])
       spawned_at = datetime.now()
       expires_at = spawned_at + timedelta(seconds=SPAWN_TIMEOUT)
-
       active_spawns[group_id] = {
           "waifu_id": waifu["waifu_id"],
           "waifu_name": waifu["name"],
@@ -141,42 +124,24 @@ import asyncio
           "expires_at": expires_at,
           "coin_multiplier": multiplier,
       }
-
-      await grp_db.set_spawn_state(
-          group_id, waifu["waifu_id"],
-          spawned_at.isoformat(), expires_at.isoformat()
-      )
-
-      # Event multiplier belgisi
-      event_mark = f" ⚡x{multiplier}" if multiplier > 1 else ""
-
+      # Datetime objects to'g'ridan-to'g'ri PostgreSQL ga beramiz
+      await grp_db.set_spawn_state(group_id, waifu["waifu_id"], spawned_at, expires_at)
+      event_mark = " ⚡x" + str(multiplier) if multiplier > 1 else ""
       caption = (
-          f"✨ <b>Yangi waifu paydo bo'ldi!</b>{event_mark}\n"
-          f"━━━━━━━━━━━━━━━━━━━━\n"
-          f"{emoji} <b>{waifu['rarity']}</b> • 🎌 {waifu['anime']}\n"
-          f"━━━━━━━━━━━━━━━━━━━━\n"
-          f"🎯 Tutish: <code>/waifu [ism]</code>\n"
-          f"⏳ Vaqt: <b>15 daqiqa</b>"
+          "✨ <b>Yangi waifu paydo bo'ldi!</b>" + event_mark + "\n"
+          "━━━━━━━━━━━━━━━━━━━━\n"
+          + emoji + " <b>" + waifu['rarity'] + "</b> • 🎌 " + waifu['anime'] + "\n"
+          "━━━━━━━━━━━━━━━━━━━━\n"
+          "🎯 Tutish: <code>/waifu [ism]</code>\n"
+          "⏳ Vaqt: <b>15 daqiqa</b>"
       )
-
-      await log_db.add_log(
-          "spawn",
-          details=f"waifu_id={waifu['waifu_id']} rarity={waifu['rarity']}",
-          group_id=group_id
-      )
-
+      await log_db.add_log("spawn", details="waifu_id=" + waifu["waifu_id"] + " rarity=" + waifu["rarity"], group_id=group_id)
       try:
-          await context.bot.send_photo(
-              chat_id=group_id,
-              photo=waifu["file_id"],
-              caption=caption,
-              parse_mode="HTML"
-          )
+          await context.bot.send_photo(chat_id=group_id, photo=waifu["file_id"], caption=caption, parse_mode="HTML")
       except Exception as e:
-          print(f"Spawn error in {group_id}: {e}")
+          print("Spawn error in", group_id, ":", e)
           active_spawns.pop(group_id, None)
           return
-
       asyncio.create_task(expire_spawn(context, group_id, SPAWN_TIMEOUT))
 
 
@@ -189,7 +154,7 @@ import asyncio
           try:
               await context.bot.send_message(
                   chat_id=group_id,
-                  text=f"⌛ Vaqt tugadi! <b>{waifu_name}</b> yo'qoldi. 😢",
+                  text="⌛ Vaqt tugadi! <b>" + waifu_name + "</b> yo'qoldi. 😢",
                   parse_mode="HTML"
               )
           except Exception:
@@ -221,98 +186,70 @@ import asyncio
       chat = update.effective_chat
       if chat.type not in ("group", "supergroup"):
           await update.message.reply_text(
-              "⚠️ Bu buyruq faqat guruhlarda ishlaydi.\n"
-              "Guruhingizga @waifu_catch_bot ni qo'shing."
+              "⚠️ Bu buyruq faqat guruhlarda ishlaydi."
           )
           return
-
       group_id = chat.id
       user = update.effective_user
-
-      # Flood ban tekshiruvi
       from middlewares.flood import is_flood_banned, flood_ban_remaining
       if is_flood_banned(user.id, group_id):
           remaining = flood_ban_remaining(user.id, group_id)
           m = remaining // 60
           s = remaining % 60
           await update.message.reply_text(
-              f"⚠️ Flood uchun cheklangan.\n"
-              f"Kutish: <b>{m}:{s:02d}</b>",
+              "⚠️ Flood uchun cheklangan.\nKutish: <b>" + str(m) + ":" + str(s).zfill(2) + "</b>",
               parse_mode="HTML"
           )
           return
-
       if group_id not in active_spawns:
           await update.message.reply_text("⚠️ Hozirda hech qanday waifu paydo bo'lmagan.")
           return
-
       if not context.args:
           spawn = active_spawns.get(group_id, {})
           emoji = get_rarity_emoji(spawn.get("rarity", "Common"))
           await update.message.reply_text(
-              f"❓ Format: <code>/waifu [ism]</code>\n"
-              f"Misol: <code>/waifu Mikasa</code>\n\n"
-              f"{emoji} Rarity: <b>{spawn.get('rarity', '?')}</b> | Anime: {spawn.get('anime', '?')}",
+              "❓ Format: <code>/waifu [ism]</code>\nMisol: <code>/waifu Mikasa</code>\n\n"
+              + emoji + " Rarity: <b>" + spawn.get('rarity', '?') + "</b> | Anime: " + spawn.get('anime', '?'),
               parse_mode="HTML"
           )
           return
-
       spawn = active_spawns[group_id]
       if datetime.now() > spawn["expires_at"]:
           active_spawns.pop(group_id, None)
           await update.message.reply_text("⌛ Bu waifu allaqachon yo'qolgan!")
           return
-
-      # Catch rate limit
       if _is_catch_flooded(user.id):
-          await update.message.reply_text(
-              f"⏳ Juda tez! {CATCH_WINDOW}s ichida {CATCH_LIMIT} ta urinish.",
-          )
+          await update.message.reply_text("⏳ Juda tez! " + str(CATCH_WINDOW) + "s ichida " + str(CATCH_LIMIT) + " ta urinish.")
           return
-
       guess = " ".join(context.args)
-
       if not _name_matches(guess, spawn["waifu_name"]):
           await update.message.reply_text("❌ Noto'g'ri! Yana urinib ko'ring 🤔")
           return
-
-      # To'g'ri! Spawnni olib tashlaymiz
       caught_spawn = active_spawns.pop(group_id, None)
       if not caught_spawn:
           return
       await grp_db.clear_spawn_state(group_id)
-
       waifu = await waifu_db.get_waifu(spawn["waifu_id"])
       if not waifu:
           return
-
       await user_db.get_or_create_user(user.id, user.username, user.full_name)
-
       coin_reward = int(get_coin_reward(spawn["rarity"]) * spawn.get("coin_multiplier", 1.0))
       await col_db.add_to_collection(user.id, spawn["waifu_id"])
       await user_db.add_coins(user.id, coin_reward)
       await user_db.update_total_caught(user.id)
-
       emoji = get_rarity_emoji(spawn["rarity"])
       display_name = user.full_name or user.username or "Noma'lum"
-      mention = f'<a href="tg://user?id={user.id}">{display_name}</a>'
+      mention = '<a href="tg://user?id=' + str(user.id) + '">' + display_name + '</a>'
       event_bonus = " ⚡" if spawn.get("coin_multiplier", 1.0) > 1 else ""
-
-      await log_db.add_log(
-          "catch",
-          user_id=user.id,
-          details=f"waifu_id={spawn['waifu_id']} rarity={spawn['rarity']}",
-          group_id=group_id
-      )
-
+      await log_db.add_log("catch", user_id=user.id, details="waifu_id=" + spawn['waifu_id'] + " rarity=" + spawn['rarity'], group_id=group_id)
       await update.message.reply_text(
-          f"🎉 {mention} waifuni qo'lga kiritdi!\n"
-          f"━━━━━━━━━━━━━━━━━━━━\n"
-          f"{emoji} <b>{waifu['name']}</b>\n"
-          f"🎌 {waifu['anime']} • ⭐ {waifu['rarity']}\n"
-          f"🆔 <code>#{waifu['waifu_id']}</code>\n"
-          f"💰 +{coin_reward:,} coin{event_bonus}\n"
-          f"━━━━━━━━━━━━━━━━━━━━",
+          "🎉 " + mention + " waifuni qo'lga kiritdi!\n"
+          "━━━━━━━━━━━━━━━━━━━━\n"
+          + emoji + " <b>" + waifu['name'] + "</b>\n"
+          "🎌 " + waifu['anime'] + " • ⭐ " + waifu['rarity'] + "\n"
+          "🆔 <code>#" + waifu['waifu_id'] + "</code>\n"
+          "💰 +" + f"{coin_reward:,}" + " coin" + event_bonus + "\n"
+          "━━━━━━━━━━━━━━━━━━━━",
           parse_mode="HTML"
       )
   
