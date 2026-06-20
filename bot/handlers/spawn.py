@@ -242,7 +242,8 @@ async def cmd_waifu_catch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await user_db.update_total_caught(user.id)
 
     emoji = get_rarity_emoji(spawn["rarity"])
-    mention = f'<a href="tg://user?id={user.id}">{user.full_name or user.username or "Noma\'lum"}</a>'
+    display_name = user.full_name or user.username or "Noma'lum"
+    mention = f'<a href="tg://user?id={user.id}">{display_name}</a>'
     event_bonus = " ⚡" if spawn.get("coin_multiplier", 1.0) > 1 else ""
 
     await log_db.add_log(
