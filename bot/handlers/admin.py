@@ -180,19 +180,8 @@ async def cmd_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _show_waifu_list(message, page: int = 0, edit: bool = False, owner_id: int = None):
     """owner_id berilsa — faqat o'sha admin qo'shgan waifular"""
     if owner_id:
-        import aiosqlite
-        from database.db import DB_PATH
-        async with aiosqlite.connect(DB_PATH) as db:
-            db.row_factory = aiosqlite.Row
-            cursor = await db.execute(
-                "SELECT COUNT(*) FROM waifus WHERE is_active=1 AND added_by=?", (owner_id,)
-            )
-            total = (await cursor.fetchone())[0]
-            cursor = await db.execute(
-                "SELECT * FROM waifus WHERE is_active=1 AND added_by=? ORDER BY id ASC LIMIT ? OFFSET ?",
-                (owner_id, PAGE_SIZE, page * PAGE_SIZE)
-            )
-            items = [dict(r) for r in await cursor.fetchall()]
+          total = await waifu_db.count_waifus_by_admin(owner_id)
+          items = await waifu_db.get_waifus_by_admin(owner_id, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
     else:
         total = await waifu_db.count_all_active()
         items = await waifu_db.get_all_waifus_paginated(limit=PAGE_SIZE, offset=page * PAGE_SIZE)
@@ -806,17 +795,7 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except ValueError:
             await update.message.reply_text("❌ Guruh ID raqam bo'lishi kerak (masalan: -1001234567890):")
             return
-        import aiosqlite
-        from database.db import DB_PATH
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
-                "INSERT OR IGNORE INTO groups (group_id, is_approved, skip_member_check) VALUES (?,1,1)",
-                (gid,)
-            )
-            await db.execute(
-                "UPDATE groups SET is_approved=1, skip_member_check=1 WHERE group_id=?", (gid,)
-            )
-            await db.commit()
+        await grp_db.bypass_group(gid)
         _clear_state(context)
         await update.message.reply_text(
             f"✅ <b>Guruh qo'shildi!</b>\n"
@@ -1121,16 +1100,7 @@ async def cmd_addgroup_bypass(update: Update, context: ContextTypes.DEFAULT_TYPE
     except ValueError:
         await update.message.reply_text("❌ Raqam.")
         return
-    import aiosqlite
-    from database.db import DB_PATH
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO groups (group_id, is_approved, skip_member_check) VALUES (?,1,1)", (gid,)
-        )
-        await db.execute(
-            "UPDATE groups SET is_approved=1, skip_member_check=1 WHERE group_id=?", (gid,)
-        )
-        await db.commit()
+    await grp_db.bypass_group(gid)
     await update.message.reply_text(
         f"✅ Guruh <code>{gid}</code> qo'shildi!\n"
         f"🔓 20 ta a'zo cheklovi chetlab o'tildi.\n"
