@@ -131,3 +131,19 @@ async def get_group_top(group_user_ids: list, limit: int = 10):
             group_user_ids, limit
         )
         return [dict(r) for r in rows]
+
+  async def get_user_by_username(username: str):
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          row = await conn.fetchrow("SELECT * FROM users WHERE username=$1", username)
+          return dict(row) if row else None
+
+
+  async def increment_trade_count(user_id1: int, user_id2: int):
+      pool = await get_pool()
+      async with pool.acquire() as conn:
+          await conn.execute(
+              "UPDATE users SET trade_count=trade_count+1 WHERE user_id=$1 OR user_id=$2",
+              user_id1, user_id2
+          )
+  
