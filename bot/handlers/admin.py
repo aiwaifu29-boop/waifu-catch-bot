@@ -405,12 +405,13 @@ async def handle_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE
       _clear_state(context)
       context.user_data[ADM_STATE] = S_ADDGROUP
       await update.message.reply_text(
-          "🔓 <b>Guruh qo'shish (Bypass)</b>\n\n"
-          "20 ta a'zo cheklovini chetlab o'tish uchun guruh ID kiriting:\n\n"
-          "📌 Guruh ID ni bilish uchun guruhda /getid yuboring.\n"
-          "Misol: <code>-1001234567890</code>",
-          parse_mode="HTML", reply_markup=kb
-      )
+      await update.message.reply_text(
+          "U0001f513 <b>Guruh qo'shish (Bypass)</b>\n\n"
+          "20 ta a'zo cheklovini chetlab o'tish uchun quyidagilardan birini yuboring:\n\n"
+          "• <code>-1001234567890</code> — to'g'ridan guruh ID\n"
+          "• <code>@groupusername</code> — ommaviy guruh\n"
+          "• <code>https://t.me/groupname</code> — havola\n\n"
+          "U0001f4cc Private guruh uchun guruh ID kerak.",
       return
 
     # ── Ko'p qadam talab qiladigan amallar ──
@@ -790,6 +791,26 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
       if not is_god_admin(user.id):
           _clear_state(context)
           return
+      gid, info = await _resolve_group_id(context, text.strip())
+      if gid is None:
+          await update.message.reply_text(
+              f"❌ Guruh topilmadi: {info}\n"
+              "ID, @username yoki havola kiriting:",
+              parse_mode="HTML"
+          )
+          return
+      await grp_db.bypass_group(gid)
+      _clear_state(context)
+      title_info = info or str(gid)
+      await update.message.reply_text(
+          f"✅ <b>Guruh qo'shildi!</b>\n"
+          f"U0001f194 <code>{gid}</code>\n"
+          f"U0001f4cc {title_info}\n"
+          f"U0001f513 20 ta a'zo cheklovi <b>chetlab o'tildi</b>.\n"
+          f"ℹ️ Endi botni guruhga qo'shing yoki bot allaqachon guruhda bo'lsa tayyor.",
+          parse_mode="HTML", reply_markup=kb
+      )
+      return
       try:
           gid = int(text.strip())
       except ValueError:
@@ -1089,23 +1110,58 @@ async def cmd_setspawn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def _resolve_group_id(context, text: str):
+    text = text.strip()
+    if text.lstrip('-').isdigit():
+        return int(text), None
+    username = text
+    if text.startswith('https://t.me/') or text.startswith('http://t.me/'):
+        path = text.split('t.me/', 1)[1].rstrip('/')
+        if path.startswith('+') or 'joinchat' in path:
+            username = text
+        else:
+            username = '@' + path
+    elif text.startswith('t.me/'):
+        username = '@' + text.split('t.me/', 1)[1].rstrip('/')
+    elif not text.startswith('@'):
+        username = '@' + text
+    try:
+        chat = await context.bot.get_chat(username)
+        return chat.id, chat.title
+    except Exception as e:
+        return None, str(e)
+
+
 async def cmd_addgroup_bypass(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_god(update, context):
       return
     if not context.args:
-      await update.message.reply_text("❌ Format: /addgroup [group_id]")
+      await update.message.reply_text(
+          "❌ Format: /addgroup [guruh_id yoki havola]\n\n"
+          "Misol: /addgroup -1001234567890\n"
+          "Misol: /addgroup @groupname\n"
+          "Misol: /addgroup https://t.me/groupname",
+          parse_mode="HTML"
+      )
       return
-    try:
-      gid = int(context.args[0])
-    except ValueError:
-      await update.message.reply_text("❌ Raqam.")
-      return
+    raw = " ".join(context.args)
+    gid, info = await _resolve_group_id(context, raw)
+    if gid is None:
+        await update.message.reply_text(
+            f"❌ Guruh topilmadi: {info}\n"
+            "ID, @username yoki havola kiriting.",
+            parse_mode="HTML"
+        )
+        return
     await grp_db.bypass_group(gid)
+    title = info or str(gid)
     await update.message.reply_text(
-      f"✅ Guruh <code>{gid}</code> qo'shildi!\n"
-      f"🔓 20 ta a'zo cheklovi chetlab o'tildi.\n"
-      f"ℹ️ Endi botni guruhga qo'shing.",
-      parse_mode="HTML"
+        f"✅ <b>Guruh qo'shildi!</b>\n"
+        f"U0001f194 <code>{gid}</code>\n"
+        f"U0001f4cc {title}\n"
+        f"U0001f513 20 ta a'zo cheklovi <b>chetlab o'tildi</b>.\n"
+        f"ℹ️ Endi botni guruhga qo'shing yoki bot allaqachon guruhda bo'lsa tayyor.",
+        parse_mode="HTML"
     )
 
 
