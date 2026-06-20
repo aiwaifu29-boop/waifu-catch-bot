@@ -331,6 +331,17 @@ async def handle_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE
     kb = _panel_kb(role)
     is_sub = (role == "sub")
 
+    # Waifu qo'shish jarayonida panel tugmalarini bloklash
+    current_state = context.user_data.get(ADM_STATE)
+    if current_state in (S_PHOTO, S_NAME, S_ANIME):
+        state_hints = {
+            S_PHOTO: '📸 Waifu rasmini yuboring (yoki /cancel deb yozing).',
+            S_NAME:  '📝 Waifu ismini yozing (yoki /cancel).',
+            S_ANIME: '🎌 Anime nomini yozing (yoki /cancel).',
+        }
+        await update.message.reply_text(state_hints[current_state], reply_markup=kb)
+        return
+
     # ── Sub-admin faqat o'z tugmalarini ── 
     if is_sub and text not in SUB_ADMIN_BUTTONS:
       await update.message.reply_text(
@@ -457,6 +468,9 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     role = await _get_role(user.id)
     kb = _panel_kb(role)
+    # Rasm yoki boshqa media kelsa — text handler ishlamaydi
+    if not update.message.text:
+        return
     text = update.message.text.strip()
 
     if text.lower() in ("/cancel", "bekor", "❌"):
