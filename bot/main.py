@@ -136,6 +136,11 @@ async def post_init(application: Application):
     await init_db()
     logger.info("Database initialized")
 
+    # Aktiv spawnlarni DB dan tiklash (server restart dan keyin)
+    from handlers.spawn import restore_active_spawns
+    await restore_active_spawns(application)
+    logger.info("Active spawns restored from DB")
+
     god_id = os.environ.get("GOD_ADMIN_ID")
     if god_id:
         try:
