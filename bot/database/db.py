@@ -152,6 +152,12 @@ async def init_db():
                 is_sold INTEGER DEFAULT 0,
                 UNIQUE(user_id, shop_date, slot)
             );
+            CREATE TABLE IF NOT EXISTS rarity_cards (
+                user_id BIGINT NOT NULL,
+                rarity TEXT NOT NULL,
+                count INTEGER DEFAULT 0,
+                PRIMARY KEY (user_id, rarity)
+            );
             CREATE INDEX IF NOT EXISTS idx_collections_user ON collections(user_id);
             CREATE INDEX IF NOT EXISTS idx_collections_waifu ON collections(waifu_id);
             CREATE INDEX IF NOT EXISTS idx_market_status ON market(status);
