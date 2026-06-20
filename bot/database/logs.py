@@ -88,16 +88,17 @@ async def set_daily_reward(user_id: int, streak: int):
 async def get_admins():
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT * FROM admins")
+        cursor = await db.execute("SELECT * FROM admins ORDER BY role, added_at")
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
 
-async def add_admin(user_id: int, username: str, added_by: int):
+async def add_admin(user_id: int, username: str, added_by: int, role: str = "admin"):
+    """role: god | admin | sub"""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT OR IGNORE INTO admins (user_id, username, added_by) VALUES (?, ?, ?)",
-            (user_id, username, added_by)
+            "INSERT OR REPLACE INTO admins (user_id, username, added_by, role) VALUES (?, ?, ?, ?)",
+            (user_id, username, added_by, role)
         )
         await db.commit()
 
@@ -118,12 +119,36 @@ async def is_admin(user_id: int) -> bool:
         return row is not None
 
 
+async def get_admin_role(user_id: int) -> str:
+    """Qaytaradi: god | admin | sub | None"""
+    from utils.helpers import is_god_admin
+    if is_god_admin(user_id):
+        return "god"
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT role FROM admins WHERE user_id=?", (user_id,))
+        row = await cursor.fetchone()
+        if row:
+            return row["role"] or "admin"
+        return None
+
+
+async def is_sub_admin_only(user_id: int) -> bool:
+    """True agar faqat sub-admin bo'lsa"""
+    role = await get_admin_role(user_id)
+    return role == "sub"
+
+
+async def is_full_admin(user_id: int) -> bool:
+    """God admin yoki to'liq admin (sub emas)"""
+    role = await get_admin_role(user_id)
+    return role in ("god", "admin")
+
+
 async def get_group_top(group_id: int, limit: int = 10, mode: str = "waifu"):
-    """Get top users in a specific group based on catch logs."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         if mode in ("coin", "coins"):
-            # For coin mode, show top coins globally but only for users who participated in this group
             cursor = await db.execute(
                 """SELECT u.user_id, u.full_name, u.username, u.coins,
                           COUNT(l.id) as catch_count

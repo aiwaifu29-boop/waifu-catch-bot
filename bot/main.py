@@ -24,11 +24,11 @@ from handlers.trade import cmd_trade, handle_trade_callback
 from handlers.gift import cmd_gift, handle_gift_callback
 from handlers.market_handler import cmd_sell, cmd_market, cmd_buy, handle_shop_callback
 from handlers.admin import (
-    cmd_removewaifu, cmd_spawn_admin, cmd_broadcast,
-    cmd_addadmin, cmd_removeadmin, cmd_ban_user, cmd_unban_user,
+    cmd_removewaifu, cmd_addwaifu_cmd, cmd_spawn_admin, cmd_broadcast,
+    cmd_addadmin, cmd_addsubadmin, cmd_removeadmin, cmd_ban_user, cmd_unban_user,
     cmd_givecoins, cmd_givewaifu, cmd_event, cmd_approvegroup, cmd_denygroup,
     cmd_addchannel, cmd_removechannel, cmd_panel, cmd_setspawn,
-    cmd_addgroup_bypass, received_rarity,
+    cmd_addgroup_bypass, cmd_admins, received_rarity,
     handle_panel_button, handle_admin_input, handle_admin_photo, handle_admin_callback,
     ALL_PANEL_BUTTONS,
     cmd_settitle, cmd_removetitle, cmd_titles
@@ -36,6 +36,7 @@ from handlers.admin import (
 from handlers.group_management import handle_new_chat_member, handle_chat_member
 from middlewares.moderation import cmd_warn, cmd_mute, cmd_unmute, cmd_kick, cmd_ban, cmd_unban
 from middlewares.subscription import handle_subscription_check
+from middlewares.ban_middleware import ban_check_middleware
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -74,23 +75,18 @@ PRIVATE_COMMANDS = [
 
 
 async def cmd_start_handler(update: Update, context):
-    """Start — deep link ko'llab-quvvatlaydi: /start col_USER_ID"""
     args = context.args or []
-    if args:
-        param = args[0]
-        if param.startswith("col_"):
-            try:
-                owner_id = int(param[4:])
-            except ValueError:
-                pass
-            else:
-                await show_user_collection_by_id(update, context, owner_id)
-                return
+    if args and args[0].startswith("col_"):
+        try:
+            owner_id = int(args[0][4:])
+            await show_user_collection_by_id(update, context, owner_id)
+            return
+        except ValueError:
+            pass
     await cmd_start(update, context)
 
 
 async def show_user_collection_by_id(update, context, owner_id: int):
-    """Deep link orqali boshqa foydalanuvchi kolleksiyasini ko'rish."""
     from database import users as user_db, collections as col_db
     from utils.helpers import get_rarity_emoji
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -119,25 +115,21 @@ async def show_user_collection_by_id(update, context, owner_id: int):
         f"{emoji} {fav_mark}<b>{show_item['name']}</b>\n"
         f"🎌 {show_item['anime']}\n"
         f"⭐ {show_item['rarity']}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"<i>Quyidagi tugmani bosing</i>"
+        f"━━━━━━━━━━━━━━━━━━━━"
     )
-
     inline_btn = InlineKeyboardButton(
         "📖 To'liq kolleksiyani ko'rish",
         switch_inline_query_current_chat=f"collection.{owner_id}"
     )
-    keyboard = InlineKeyboardMarkup([[inline_btn]])
-
     try:
         await update.message.reply_photo(
             photo=show_item["file_id"],
             caption=caption,
             parse_mode="HTML",
-            reply_markup=keyboard
+            reply_markup=InlineKeyboardMarkup([[inline_btn]])
         )
-    except Exception as e:
-        await update.message.reply_text(f"❌ Xato: {e}")
+    except Exception:
+        await update.message.reply_text(caption, parse_mode="HTML")
 
 
 async def post_init(application: Application):
@@ -151,8 +143,8 @@ async def post_init(application: Application):
             from database.db import DB_PATH
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute(
-                    "INSERT OR IGNORE INTO admins (user_id, username, added_by) VALUES (?,?,?)",
-                    (int(god_id), "god_admin", int(god_id))
+                    "INSERT OR REPLACE INTO admins (user_id, username, added_by, role) VALUES (?,?,?,?)",
+                    (int(god_id), "god_admin", int(god_id), "god")
                 )
                 await db.commit()
             logger.info(f"God admin {god_id} registered")
@@ -163,16 +155,32 @@ async def post_init(application: Application):
         await application.bot.set_my_commands(GROUP_COMMANDS, scope=BotCommandScopeAllGroupChats())
         await application.bot.set_my_commands(PRIVATE_COMMANDS, scope=BotCommandScopeAllPrivateChats())
     except Exception as e:
-        logger.warning(f"Could not set commands: {e}")
+        logger.warning(f"Commands not set: {e}")
 
 
 def build_app(token: str) -> Application:
     app = Application.builder().token(token).post_init(post_init).build()
 
-    # ── Start ──
+    # ──────────────────────────────────────
+    #  GROUP -1: Ban tekshiruvi (eng birinchi)
+    # ──────────────────────────────────────
+    app.add_handler(
+        MessageHandler(filters.ALL, ban_check_middleware),
+        group=-1
+    )
+    app.add_handler(
+        CallbackQueryHandler(ban_check_middleware),
+        group=-1
+    )
+
+    # ──────────────────────────────────────
+    #  GROUP 0: Asosiy handlerlar
+    # ──────────────────────────────────────
+
+    # Start
     app.add_handler(CommandHandler("start", cmd_start_handler))
 
-    # ── Foydalanuvchi buyruqlari ──
+    # Foydalanuvchi buyruqlari
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("profil", cmd_profil))
     app.add_handler(CommandHandler("collection", cmd_collection_gallery))
@@ -185,25 +193,27 @@ def build_app(token: str) -> Application:
     app.add_handler(CommandHandler("favorite", cmd_favorite))
     app.add_handler(CommandHandler("history", cmd_history))
 
-    # ── Waifu catch ──
+    # Waifu tutish
     app.add_handler(CommandHandler("waifu", cmd_waifu_catch))
 
-    # ── Trade va sovg'a ──
+    # Trade va sovg'a
     app.add_handler(CommandHandler("trade", cmd_trade))
     app.add_handler(CommandHandler("gift", cmd_gift))
 
-    # ── Bozor / Do'kon ──
+    # Bozor / Do'kon
     app.add_handler(CommandHandler("sell", cmd_sell))
     app.add_handler(CommandHandler("market", cmd_market))
     app.add_handler(CommandHandler("buy", cmd_buy))
 
-    # ── Admin buyruqlari ──
+    # Admin buyruqlari
+    app.add_handler(CommandHandler("addwaifu", cmd_addwaifu_cmd))
     app.add_handler(CommandHandler("removewaifu", cmd_removewaifu))
     app.add_handler(CommandHandler("spawn", cmd_spawn_admin))
     app.add_handler(CommandHandler("setspawn", cmd_setspawn))
     app.add_handler(CommandHandler("addgroup", cmd_addgroup_bypass))
     app.add_handler(CommandHandler("broadcast", cmd_broadcast))
     app.add_handler(CommandHandler("addadmin", cmd_addadmin))
+    app.add_handler(CommandHandler("addsubadmin", cmd_addsubadmin))
     app.add_handler(CommandHandler("removeadmin", cmd_removeadmin))
     app.add_handler(CommandHandler("banuser", cmd_ban_user))
     app.add_handler(CommandHandler("unbanuser", cmd_unban_user))
@@ -215,11 +225,13 @@ def build_app(token: str) -> Application:
     app.add_handler(CommandHandler("addchannel", cmd_addchannel))
     app.add_handler(CommandHandler("removechannel", cmd_removechannel))
     app.add_handler(CommandHandler("panel", cmd_panel))
+    app.add_handler(CommandHandler("setspawn", cmd_setspawn))
     app.add_handler(CommandHandler("settitle", cmd_settitle))
     app.add_handler(CommandHandler("removetitle", cmd_removetitle))
     app.add_handler(CommandHandler("titles", cmd_titles))
+    app.add_handler(CommandHandler("admins", cmd_admins))
 
-    # ── Moderatsiya ──
+    # Moderatsiya
     app.add_handler(CommandHandler("warn", cmd_warn))
     app.add_handler(CommandHandler("mute", cmd_mute))
     app.add_handler(CommandHandler("unmute", cmd_unmute))
@@ -227,10 +239,10 @@ def build_app(token: str) -> Application:
     app.add_handler(CommandHandler("ban", cmd_ban))
     app.add_handler(CommandHandler("unban", cmd_unban))
 
-    # ── Inline query ──
+    # Inline query
     app.add_handler(InlineQueryHandler(handle_inline_query))
 
-    # ── Callback handlers (aniqroqdan umumiyga) ──
+    # Callback handlers (aniqroqdan umumiyga)
     app.add_handler(CallbackQueryHandler(handle_subscription_check, pattern="^sub_check$"))
     app.add_handler(CallbackQueryHandler(received_rarity, pattern="^rarity_"))
     app.add_handler(CallbackQueryHandler(handle_trade_callback, pattern="^trade_"))
@@ -239,30 +251,30 @@ def build_app(token: str) -> Application:
     app.add_handler(CallbackQueryHandler(handle_shop_callback, pattern="^shop_"))
     app.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^adm_"))
 
-    # ── Admin panel tugmalari (ReplyKeyboard) ──
+    # Admin panel tugmalari (ReplyKeyboard)
     panel_pattern = "^(" + "|".join(re.escape(btn) for btn in ALL_PANEL_BUTTONS) + ")$"
     app.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(panel_pattern),
         handle_panel_button
     ))
 
-    # ── Admin foto (waifu qo'shish, private chat) ──
+    # Admin rasm (waifu qo'shish, private chat)
     app.add_handler(MessageHandler(
         filters.PHOTO & filters.ChatType.PRIVATE,
         handle_admin_photo
     ))
 
-    # ── Admin matn kiritish (state machine, private chat) ──
+    # Admin matn kiritish (state machine, private)
     app.add_handler(MessageHandler(
         filters.TEXT & filters.ChatType.PRIVATE & ~filters.COMMAND,
         handle_admin_input
     ))
 
-    # ── Guruh hodisalari ──
+    # Guruh hodisalari
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_member))
     app.add_handler(ChatMemberHandler(handle_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
 
-    # ── Xabar sanagichi (guruhlar, oxirgi) ──
+    # Xabar sanagichi (guruhlar, eng oxirgi)
     app.add_handler(MessageHandler(
         filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND,
         handle_message_count
@@ -283,7 +295,7 @@ def main():
     app = build_app(token)
 
     if webhook_url:
-        logger.info(f"Starting webhook mode: {webhook_url}")
+        logger.info(f"Webhook mode: {webhook_url}")
         app.run_webhook(
             listen="0.0.0.0",
             port=port,
@@ -292,7 +304,7 @@ def main():
             drop_pending_updates=True,
         )
     else:
-        logger.info("Starting polling mode...")
+        logger.info("Polling mode...")
         app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 

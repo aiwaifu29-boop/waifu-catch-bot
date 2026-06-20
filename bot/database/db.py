@@ -172,6 +172,7 @@ async def init_db():
         for migration in [
             "ALTER TABLE groups ADD COLUMN spawn_threshold INTEGER DEFAULT 100",
             "ALTER TABLE groups ADD COLUMN skip_member_check INTEGER DEFAULT 0",
+            "ALTER TABLE admins ADD COLUMN role TEXT DEFAULT 'admin'",
         ]:
             try:
                 await db.execute(migration)
