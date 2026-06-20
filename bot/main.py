@@ -22,14 +22,15 @@ from handlers.user_commands import (
 )
 from handlers.trade import cmd_trade, handle_trade_callback
 from handlers.gift import cmd_gift, handle_gift_callback
-from handlers.market_handler import cmd_sell, cmd_market, cmd_buy
+from handlers.market_handler import cmd_sell, cmd_market, cmd_buy, handle_shop_callback
 from handlers.admin import (
     cmd_removewaifu, cmd_spawn_admin, cmd_broadcast,
     cmd_addadmin, cmd_removeadmin, cmd_ban_user, cmd_unban_user,
     cmd_givecoins, cmd_givewaifu, cmd_event, cmd_approvegroup, cmd_denygroup,
     cmd_addchannel, cmd_removechannel, cmd_panel, cmd_setspawn,
-    cmd_addgroup_bypass, get_addwaifu_handler, received_rarity,
-    handle_panel_button, ALL_PANEL_BUTTONS,
+    cmd_addgroup_bypass, received_rarity,
+    handle_panel_button, handle_admin_input, handle_admin_photo, handle_admin_callback,
+    ALL_PANEL_BUTTONS,
     cmd_settitle, cmd_removetitle, cmd_titles
 )
 from handlers.group_management import handle_new_chat_member, handle_chat_member
@@ -53,8 +54,8 @@ GROUP_COMMANDS = [
     BotCommand("trade", "Waifu savdosi"),
     BotCommand("gift", "Waifu sovg'a qilish"),
     BotCommand("sell", "Bozorga qo'yish"),
-    BotCommand("market", "Bozor"),
-    BotCommand("buy", "Bozordan sotib olish"),
+    BotCommand("market", "Bugungi do'kon"),
+    BotCommand("buy", "Do'kondan sotib olish"),
     BotCommand("search", "Waifu qidirish"),
     BotCommand("help", "Yordam"),
 ]
@@ -65,7 +66,7 @@ PRIVATE_COMMANDS = [
     BotCommand("collection", "Kolleksiyangiz"),
     BotCommand("daily", "Kunlik mukofot"),
     BotCommand("top", "Global reyting"),
-    BotCommand("market", "Bozor"),
+    BotCommand("market", "Bugungi do'kon"),
     BotCommand("search", "Waifu qidirish"),
     BotCommand("stats", "Statistika"),
     BotCommand("help", "Yordam"),
@@ -103,22 +104,23 @@ async def show_user_collection_by_id(update, context, owner_id: int):
     owner_name = owner.get("full_name") or owner.get("username") or str(owner_id)
 
     if not items:
-        await update.message.reply_text(f"📦 <b>{owner_name}</b>ning kolleksiyasi bo'sh.", parse_mode="HTML")
+        await update.message.reply_text(
+            f"📦 <b>{owner_name}</b>ning kolleksiyasi bo'sh.", parse_mode="HTML"
+        )
         return
 
-    # Sevimli yoki birinchi waifuni ko'rsat
     show_item = next((it for it in items if it.get("is_favorite")), items[0])
     emoji = get_rarity_emoji(show_item["rarity"])
-    fav = "⭐ " if show_item.get("is_favorite") else ""
+    fav_mark = "⭐ " if show_item.get("is_favorite") else ""
 
     caption = (
         f"🎴 <b>{owner_name}</b>ning kolleksiyasi — jami {len(items)} ta\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{emoji} {fav}<b>{show_item['name']}</b>\n"
+        f"{emoji} {fav_mark}<b>{show_item['name']}</b>\n"
         f"🎌 {show_item['anime']}\n"
         f"⭐ {show_item['rarity']}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"<i>«📖 Kolleksiyani ko'rish» tugmasini bosing</i>"
+        f"<i>Quyidagi tugmani bosing</i>"
     )
 
     inline_btn = InlineKeyboardButton(
@@ -149,7 +151,7 @@ async def post_init(application: Application):
             from database.db import DB_PATH
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute(
-                    "INSERT OR IGNORE INTO admins (user_id, username, added_by) VALUES (?, ?, ?)",
+                    "INSERT OR IGNORE INTO admins (user_id, username, added_by) VALUES (?,?,?)",
                     (int(god_id), "god_admin", int(god_id))
                 )
                 await db.commit()
@@ -160,7 +162,6 @@ async def post_init(application: Application):
     try:
         await application.bot.set_my_commands(GROUP_COMMANDS, scope=BotCommandScopeAllGroupChats())
         await application.bot.set_my_commands(PRIVATE_COMMANDS, scope=BotCommandScopeAllPrivateChats())
-        logger.info("Bot commands set successfully")
     except Exception as e:
         logger.warning(f"Could not set commands: {e}")
 
@@ -168,13 +169,10 @@ async def post_init(application: Application):
 def build_app(token: str) -> Application:
     app = Application.builder().token(token).post_init(post_init).build()
 
-    # Admin conversation handler (birinchi bo'lishi shart)
-    app.add_handler(get_addwaifu_handler())
-
-    # Start (deep link bilan)
+    # ── Start ──
     app.add_handler(CommandHandler("start", cmd_start_handler))
 
-    # Foydalanuvchi buyruqlari
+    # ── Foydalanuvchi buyruqlari ──
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("profil", cmd_profil))
     app.add_handler(CommandHandler("collection", cmd_collection_gallery))
@@ -187,19 +185,19 @@ def build_app(token: str) -> Application:
     app.add_handler(CommandHandler("favorite", cmd_favorite))
     app.add_handler(CommandHandler("history", cmd_history))
 
-    # Waifu catch
+    # ── Waifu catch ──
     app.add_handler(CommandHandler("waifu", cmd_waifu_catch))
 
-    # Trade va sovg'a
+    # ── Trade va sovg'a ──
     app.add_handler(CommandHandler("trade", cmd_trade))
     app.add_handler(CommandHandler("gift", cmd_gift))
 
-    # Bozor
+    # ── Bozor / Do'kon ──
     app.add_handler(CommandHandler("sell", cmd_sell))
     app.add_handler(CommandHandler("market", cmd_market))
     app.add_handler(CommandHandler("buy", cmd_buy))
 
-    # Admin buyruqlari
+    # ── Admin buyruqlari ──
     app.add_handler(CommandHandler("removewaifu", cmd_removewaifu))
     app.add_handler(CommandHandler("spawn", cmd_spawn_admin))
     app.add_handler(CommandHandler("setspawn", cmd_setspawn))
@@ -221,7 +219,7 @@ def build_app(token: str) -> Application:
     app.add_handler(CommandHandler("removetitle", cmd_removetitle))
     app.add_handler(CommandHandler("titles", cmd_titles))
 
-    # Moderatsiya
+    # ── Moderatsiya ──
     app.add_handler(CommandHandler("warn", cmd_warn))
     app.add_handler(CommandHandler("mute", cmd_mute))
     app.add_handler(CommandHandler("unmute", cmd_unmute))
@@ -229,28 +227,42 @@ def build_app(token: str) -> Application:
     app.add_handler(CommandHandler("ban", cmd_ban))
     app.add_handler(CommandHandler("unban", cmd_unban))
 
-    # Inline query handler — collection.USER_ID so'rovlarini qayta ishlaydi
+    # ── Inline query ──
     app.add_handler(InlineQueryHandler(handle_inline_query))
 
-    # Callback handlers (aniqroqdan umumiyga qarab)
+    # ── Callback handlers (aniqroqdan umumiyga) ──
     app.add_handler(CallbackQueryHandler(handle_subscription_check, pattern="^sub_check$"))
     app.add_handler(CallbackQueryHandler(received_rarity, pattern="^rarity_"))
     app.add_handler(CallbackQueryHandler(handle_trade_callback, pattern="^trade_"))
     app.add_handler(CallbackQueryHandler(handle_gift_callback, pattern="^gift_"))
     app.add_handler(CallbackQueryHandler(handle_gallery_callback, pattern="^gal_"))
+    app.add_handler(CallbackQueryHandler(handle_shop_callback, pattern="^shop_"))
+    app.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^adm_"))
 
-    # Admin panel tugmalari (ReplyKeyboard matni)
+    # ── Admin panel tugmalari (ReplyKeyboard) ──
     panel_pattern = "^(" + "|".join(re.escape(btn) for btn in ALL_PANEL_BUTTONS) + ")$"
     app.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(panel_pattern),
         handle_panel_button
     ))
 
-    # Guruhga yangi a'zo qo'shilganda
+    # ── Admin foto (waifu qo'shish, private chat) ──
+    app.add_handler(MessageHandler(
+        filters.PHOTO & filters.ChatType.PRIVATE,
+        handle_admin_photo
+    ))
+
+    # ── Admin matn kiritish (state machine, private chat) ──
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.ChatType.PRIVATE & ~filters.COMMAND,
+        handle_admin_input
+    ))
+
+    # ── Guruh hodisalari ──
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_member))
     app.add_handler(ChatMemberHandler(handle_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
 
-    # Xabar sanagichi (faqat guruhlarda, oxirgi handler)
+    # ── Xabar sanagichi (guruhlar, oxirgi) ──
     app.add_handler(MessageHandler(
         filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND,
         handle_message_count

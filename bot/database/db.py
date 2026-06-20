@@ -151,6 +151,17 @@ async def init_db():
                 given_at TEXT DEFAULT (datetime('now'))
             );
 
+            CREATE TABLE IF NOT EXISTS daily_shop (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                shop_date TEXT NOT NULL,
+                slot INTEGER NOT NULL,
+                waifu_id TEXT NOT NULL,
+                price INTEGER NOT NULL,
+                is_sold INTEGER DEFAULT 0,
+                UNIQUE(user_id, shop_date, slot)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_collections_user ON collections(user_id);
             CREATE INDEX IF NOT EXISTS idx_collections_waifu ON collections(waifu_id);
             CREATE INDEX IF NOT EXISTS idx_market_status ON market(status);

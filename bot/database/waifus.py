@@ -1,27 +1,39 @@
 import aiosqlite
 from .db import DB_PATH
-from utils.helpers import pick_random_rarity, generate_waifu_id
+from utils.helpers import pick_random_rarity
 import random
 
 
-async def add_waifu(waifu_id: str, name: str, anime: str, rarity: str, file_id: str, added_by: int) -> bool:
+async def add_waifu(name: str, anime: str, rarity: str, file_id: str, added_by: int) -> tuple:
+    """Waifu qo'shadi. Qaytaradi: (success: bool, waifu_id: str)"""
     async with aiosqlite.connect(DB_PATH) as db:
         try:
-            await db.execute(
-                """INSERT INTO waifus (waifu_id, name, anime, rarity, file_id, added_by)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (waifu_id, name, anime, rarity, file_id, added_by)
+            cursor = await db.execute(
+                "INSERT INTO waifus (waifu_id, name, anime, rarity, file_id, added_by) VALUES ('__tmp__',?,?,?,?,?)",
+                (name, anime, rarity, file_id, added_by)
             )
+            new_id = cursor.lastrowid
+            waifu_id = str(new_id)
+            await db.execute("UPDATE waifus SET waifu_id=? WHERE id=?", (waifu_id, new_id))
             await db.commit()
-            return True
-        except Exception:
-            return False
+            return True, waifu_id
+        except Exception as e:
+            print(f"add_waifu error: {e}")
+            return False, ""
 
 
 async def get_waifu(waifu_id: str):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM waifus WHERE waifu_id=? AND is_active=1", (waifu_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def get_waifu_by_db_id(db_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM waifus WHERE id=? AND is_active=1", (db_id,))
         row = await cursor.fetchone()
         return dict(row) if row else None
 
@@ -55,17 +67,28 @@ async def remove_waifu(waifu_id: str):
         await db.commit()
 
 
-async def edit_waifu(waifu_id: str, name: str = None, anime: str = None, rarity: str = None, file_id: str = None):
+async def remove_waifu_by_db_id(db_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
-        if name:
-            await db.execute("UPDATE waifus SET name=? WHERE waifu_id=?", (name, waifu_id))
-        if anime:
-            await db.execute("UPDATE waifus SET anime=? WHERE waifu_id=?", (anime, waifu_id))
-        if rarity:
-            await db.execute("UPDATE waifus SET rarity=? WHERE waifu_id=?", (rarity, waifu_id))
-        if file_id:
-            await db.execute("UPDATE waifus SET file_id=? WHERE waifu_id=?", (file_id, waifu_id))
+        await db.execute("UPDATE waifus SET is_active=0 WHERE id=?", (db_id,))
         await db.commit()
+
+
+async def get_all_waifus_paginated(limit: int = 8, offset: int = 0):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM waifus WHERE is_active=1 ORDER BY id ASC LIMIT ? OFFSET ?",
+            (limit, offset)
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def count_all_active() -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("SELECT COUNT(*) FROM waifus WHERE is_active=1")
+        row = await cursor.fetchone()
+        return row[0] if row else 0
 
 
 async def search_waifus(query: str, limit: int = 10):
@@ -111,7 +134,7 @@ async def get_all_waifus(limit: int = 50, offset: int = 0):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT * FROM waifus WHERE is_active=1 ORDER BY rarity, name LIMIT ? OFFSET ?",
+            "SELECT * FROM waifus WHERE is_active=1 ORDER BY id ASC LIMIT ? OFFSET ?",
             (limit, offset)
         )
         rows = await cursor.fetchall()
