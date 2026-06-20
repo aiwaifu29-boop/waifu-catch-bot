@@ -812,21 +812,6 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
           parse_mode="HTML", reply_markup=kb
       )
       return
-      try:
-          gid = int(text.strip())
-      except ValueError:
-          await update.message.reply_text("❌ Guruh ID raqam bo'lishi kerak (masalan: -1001234567890):")
-          return
-      await grp_db.bypass_group(gid)
-      _clear_state(context)
-      await update.message.reply_text(
-          f"✅ <b>Guruh qo'shildi!</b>\n"
-          f"🆔 <code>{gid}</code>\n"
-          f"🔓 20 ta a'zo cheklovi <b>chetlab o'tildi</b>.\n"
-          f"ℹ️ Endi botni guruhga qo'shing yoki bot allaqachon guruhda bo'lsa tayyor.",
-          parse_mode="HTML", reply_markup=kb
-      )
-      return
 
 
 # ──────────────────────────────────────
