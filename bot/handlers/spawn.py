@@ -9,6 +9,7 @@ from database import users as user_db
 from database import groups as grp_db
 from database import logs as log_db
 from utils.helpers import get_rarity_emoji, get_coin_reward
+from utils.stickers import get_catch_sticker, send_sticker as send_stk
 
 SPAWN_TIMEOUT = 15 * 60  # 15 daqiqa
 
