@@ -33,6 +33,7 @@ BTN_USERS     = "👥 A'zolar"
 BTN_ADDADMIN  = "👑 Admin qo'shish"
 BTN_RMADMIN   = "🔴 Admin o'chirish"
 BTN_ADDSUBADM = "🟡 Sub-Admin qo'shish"
+BTN_ADDGROUP  = "🔓 Guruh qo'shish"
 BTN_CLOSE     = "🚪 Panelni yopish"
 
 # Sub-admin faqat ko'ra oladigan tugmalar
@@ -43,7 +44,7 @@ ALL_PANEL_BUTTONS = {
     BTN_COINS, BTN_GIVEW, BTN_BAN, BTN_UNBAN,
     BTN_BROADCAST, BTN_EVENT, BTN_STATS, BTN_SPAWN,
     BTN_TITLE, BTN_USERS, BTN_ADDADMIN, BTN_RMADMIN,
-    BTN_ADDSUBADM, BTN_CLOSE,
+    BTN_ADDSUBADM, BTN_ADDGROUP, BTN_CLOSE,
 }
 
 # Sub-admin uchun yopiq raritlar
@@ -73,6 +74,7 @@ S_TITLE_UID  = "title_uid"
 S_TITLE_TXT  = "title_txt"
 S_EVENT      = "event"
 S_SPAWN_SET  = "spawn_set"
+S_ADDGROUP   = "addgroup_bypass"
 
 PAGE_SIZE = 8
 
@@ -94,7 +96,7 @@ def _panel_kb(role: str) -> ReplyKeyboardMarkup:
             [BTN_STATS, BTN_SPAWN],
             [BTN_TITLE, BTN_USERS],
             [BTN_ADDADMIN, BTN_ADDSUBADM],
-            [BTN_RMADMIN],
+            [BTN_RMADMIN, BTN_ADDGROUP],
             [BTN_CLOSE],
         ]
     else:  # admin
@@ -402,6 +404,22 @@ async def handle_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE
             "📸 <b>WAIFU QO'SHISH</b>\n\n"
             "Waifu rasmini yuboring:\n\n"
             "Bekor qilish: /cancel",
+            parse_mode="HTML", reply_markup=kb
+        )
+        return
+
+    # ── Guruh qo'shish bypass (faqat god admin) ──
+    if text == BTN_ADDGROUP:
+        if not is_god_admin(user.id):
+            await update.message.reply_text("❌ Faqat God Admin.", reply_markup=kb)
+            return
+        _clear_state(context)
+        context.user_data[ADM_STATE] = S_ADDGROUP
+        await update.message.reply_text(
+            "🔓 <b>Guruh qo'shish (Bypass)</b>\n\n"
+            "20 ta a'zo cheklovini chetlab o'tish uchun guruh ID kiriting:\n\n"
+            "📌 Guruh ID ni bilish uchun guruhda /getid yuboring.\n"
+            "Misol: <code>-1001234567890</code>",
             parse_mode="HTML", reply_markup=kb
         )
         return
@@ -778,6 +796,33 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
         return
 
+    # ── Guruh qo'shish bypass ──
+    if state == S_ADDGROUP:
+        if not is_god_admin(user.id):
+            _clear_state(context)
+            return
+        try:
+            gid = int(text.strip())
+        except ValueError:
+            await update.message.reply_text("❌ Guruh ID raqam bo'lishi kerak (masalan: -1001234567890):")
+            return
+        import aiosqlite
+        from database.db import DB_PATH
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO groups (group_id, is_approved, skip_member_check) VALUES (?,1,1)",
+                (gid,)
+            )
+            await db.commit()
+        _clear_state(context)
+        await update.message.reply_text(
+            f"✅ <b>Guruh qo'shildi!</b>\n"
+            f"🆔 <code>{gid}</code>\n"
+            f"🔓 20 ta a'zo cheklovi <b>chetlab o'tildi</b>.",
+            parse_mode="HTML", reply_markup=kb
+        )
+        return
+
 
 # ──────────────────────────────────────
 #  ADMIN RASM HANDLER (addwaifu)
@@ -1014,12 +1059,31 @@ async def cmd_spawn_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await do_spawn(context, chat.id, chat.title)
 
 
+async def _is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Guruh Telegram admini yoki bot admini ekanini tekshiradi."""
+    user = update.effective_user
+    chat = update.effective_chat
+    if not user or not chat:
+        return False
+    # Bot admini har doim ruxsatli
+    if await log_db.is_admin(user.id):
+        return True
+    # Guruhda Telegram admin huquqini tekshir
+    try:
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        return member.status in ("administrator", "creator")
+    except Exception:
+        return False
+
+
 async def cmd_setspawn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     if chat.type not in ("group", "supergroup"):
         await update.message.reply_text("❌ Faqat guruhda.")
         return
-    if not await require_full_admin(update, context):
+    user = update.effective_user
+    if not await _is_group_admin(update, context):
+        await update.message.reply_text("❌ Bu buyruq faqat guruh adminlari uchun.")
         return
     if not context.args:
         current = await grp_db.get_spawn_threshold(chat.id)
