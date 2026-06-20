@@ -810,15 +810,19 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         from database.db import DB_PATH
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
-                "INSERT OR REPLACE INTO groups (group_id, is_approved, skip_member_check) VALUES (?,1,1)",
+                "INSERT OR IGNORE INTO groups (group_id, is_approved, skip_member_check) VALUES (?,1,1)",
                 (gid,)
+            )
+            await db.execute(
+                "UPDATE groups SET is_approved=1, skip_member_check=1 WHERE group_id=?", (gid,)
             )
             await db.commit()
         _clear_state(context)
         await update.message.reply_text(
             f"✅ <b>Guruh qo'shildi!</b>\n"
             f"🆔 <code>{gid}</code>\n"
-            f"🔓 20 ta a'zo cheklovi <b>chetlab o'tildi</b>.",
+            f"🔓 20 ta a'zo cheklovi <b>chetlab o'tildi</b>.\n"
+            f"ℹ️ Endi botni guruhga qo'shing yoki bot allaqachon guruhda bo'lsa tayyor.",
             parse_mode="HTML", reply_markup=kb
         )
         return
@@ -1121,10 +1125,18 @@ async def cmd_addgroup_bypass(update: Update, context: ContextTypes.DEFAULT_TYPE
     from database.db import DB_PATH
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT OR REPLACE INTO groups (group_id, is_approved, skip_member_check) VALUES (?,1,1)", (gid,)
+            "INSERT OR IGNORE INTO groups (group_id, is_approved, skip_member_check) VALUES (?,1,1)", (gid,)
+        )
+        await db.execute(
+            "UPDATE groups SET is_approved=1, skip_member_check=1 WHERE group_id=?", (gid,)
         )
         await db.commit()
-    await update.message.reply_text(f"✅ Guruh <code>{gid}</code> qo'shildi.", parse_mode="HTML")
+    await update.message.reply_text(
+        f"✅ Guruh <code>{gid}</code> qo'shildi!\n"
+        f"🔓 20 ta a'zo cheklovi chetlab o'tildi.\n"
+        f"ℹ️ Endi botni guruhga qo'shing.",
+        parse_mode="HTML"
+    )
 
 
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
