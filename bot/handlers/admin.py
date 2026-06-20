@@ -405,13 +405,14 @@ async def handle_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE
       _clear_state(context)
       context.user_data[ADM_STATE] = S_ADDGROUP
       await update.message.reply_text(
-      await update.message.reply_text(
-          "U0001f513 <b>Guruh qo'shish (Bypass)</b>\n\n"
+          "🔓 <b>Guruh qo'shish (Bypass)</b>\n\n"
           "20 ta a'zo cheklovini chetlab o'tish uchun quyidagilardan birini yuboring:\n\n"
-          "• <code>-1001234567890</code> — to'g'ridan guruh ID\n"
-          "• <code>@groupusername</code> — ommaviy guruh\n"
-          "• <code>https://t.me/groupname</code> — havola\n\n"
-          "U0001f4cc Private guruh uchun guruh ID kerak.",
+          "\u2022 <code>-1001234567890</code> \u2014 to'g'ridan guruh ID\n"
+          "\u2022 <code>@groupusername</code> \u2014 ommaviy guruh\n"
+          "\u2022 <code>https://t.me/groupname</code> \u2014 havola\n\n"
+          "\U0001f4cc Private guruh uchun guruh ID kerak.",
+          parse_mode="HTML", reply_markup=kb
+      )
       return
 
     # ── Ko'p qadam talab qiladigan amallar ──
@@ -804,9 +805,9 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
       title_info = info or str(gid)
       await update.message.reply_text(
           f"✅ <b>Guruh qo'shildi!</b>\n"
-          f"U0001f194 <code>{gid}</code>\n"
-          f"U0001f4cc {title_info}\n"
-          f"U0001f513 20 ta a'zo cheklovi <b>chetlab o'tildi</b>.\n"
+          f"🆔 <code>{gid}</code>\n"
+          f"📌 {title_info}\n"
+          f"🔓 20 ta a'zo cheklovi <b>chetlab o'tildi</b>.\n"
           f"ℹ️ Endi botni guruhga qo'shing yoki bot allaqachon guruhda bo'lsa tayyor.",
           parse_mode="HTML", reply_markup=kb
       )
@@ -1157,9 +1158,9 @@ async def cmd_addgroup_bypass(update: Update, context: ContextTypes.DEFAULT_TYPE
     title = info or str(gid)
     await update.message.reply_text(
         f"✅ <b>Guruh qo'shildi!</b>\n"
-        f"U0001f194 <code>{gid}</code>\n"
-        f"U0001f4cc {title}\n"
-        f"U0001f513 20 ta a'zo cheklovi <b>chetlab o'tildi</b>.\n"
+        f"🆔 <code>{gid}</code>\n"
+        f"📌 {title}\n"
+        f"🔓 20 ta a'zo cheklovi <b>chetlab o'tildi</b>.\n"
         f"ℹ️ Endi botni guruhga qo'shing yoki bot allaqachon guruhda bo'lsa tayyor.",
         parse_mode="HTML"
     )
