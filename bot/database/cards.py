@@ -4,13 +4,13 @@ from typing import Optional
 RARITY_ORDER = ['Common', 'Rare', 'Super Rare', 'Epic', 'Mythic', 'Legendary', 'Premium', 'Exclusive']
 RARITY_EMOJI = {
     'Common':    '⚪',
-    'Rare':      'U0001f7e2',
-    'Super Rare':'U0001f535',
-    'Epic':      'U0001f7e3',
-    'Mythic':    'U0001f7e0',
-    'Legendary': 'U0001f7e1',
-    'Premium':   'U0001f48e',
-    'Exclusive': 'U0001f451',
+    'Rare':      '🟢',
+    'Super Rare':'🔵',
+    'Epic':      '🟣',
+    'Mythic':    '🟠',
+    'Legendary': '🟡',
+    'Premium':   '💎',
+    'Exclusive': '👑',
 }
 DUPES_PER_CARD = 10
 CARDS_PER_UPGRADE = 10
@@ -77,7 +77,7 @@ async def exchange_duplicates(user_id: int, rarity: str):
             ids = [r['id'] for r in removed]
             await conn.execute('DELETE FROM collections WHERE id = ANY($1::int[])', ids)
             await _set_card_count(conn, user_id, rarity, 1)
-    emoji = RARITY_EMOJI.get(rarity, 'U0001f0cf')
+    emoji = RARITY_EMOJI.get(rarity, '🃏')
     return True, f'{emoji} <b>{rarity}</b> kartasi olindi!'
 
 
@@ -126,6 +126,6 @@ async def upgrade_cards(user_id: int, rarity: str):
         async with conn.transaction():
             await _set_card_count(conn, user_id, rarity, -CARDS_PER_UPGRADE)
             await _set_card_count(conn, user_id, next_rarity, 1)
-    e1 = RARITY_EMOJI.get(rarity, 'U0001f0cf')
-    e2 = RARITY_EMOJI.get(next_rarity, 'U0001f0cf')
+    e1 = RARITY_EMOJI.get(rarity, '🃏')
+    e2 = RARITY_EMOJI.get(next_rarity, '🃏')
     return True, f'{e1} 10x {rarity} → {e2} <b>{next_rarity}</b> kartasi!'
