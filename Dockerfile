@@ -1,13 +1,17 @@
 FROM python:3.11-slim
 
-WORKDIR /app
+  WORKDIR /app
 
-COPY bot/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+  COPY bot/requirements.txt .
+  RUN pip install --no-cache-dir -r requirements.txt
 
-COPY bot/ ./bot/
+  COPY bot/ ./bot/
 
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app/bot
+  # Persistent volume uchun /data papkasini yaratish
+  RUN mkdir -p /data
 
-CMD ["python", "bot/main.py"]
+  ENV PYTHONUNBUFFERED=1
+  ENV PYTHONPATH=/app/bot
+
+  CMD ["python", "bot/main.py"]
+  
