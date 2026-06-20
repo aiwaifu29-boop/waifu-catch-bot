@@ -16,14 +16,14 @@ async def cmd_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         cid = int(context.args[0])
     except ValueError:
-        await update.message.reply_text("\u274c ID raqam bo\u02bcishi kerak.")
+        await update.message.reply_text("\u274c ID raqam boʼishi kerak.")
         return
 
     target_username = context.args[1].lstrip("@")
 
     item = await col_db.get_collection_item(cid)
     if not item or item["user_id"] != user.id:
-        await update.message.reply_text("\u274c Bu waifu sizda yo\u02bcq.")
+        await update.message.reply_text("\u274c Bu waifu sizda yoʼq.")
         return
 
     receiver = await user_db.get_user_by_username(target_username)
@@ -32,7 +32,7 @@ async def cmd_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if receiver["user_id"] == user.id:
-        await update.message.reply_text("\u274c O\u02bcz\u0438ngizga sovg\u02bca qila olmaysiz.")
+        await update.message.reply_text("\u274c Oʼz\u0438ngizga sovgʼa qila olmaysiz.")
         return
 
     gift_id = f"gift_{user.id}_{cid}_{receiver['user_id']}"
@@ -53,9 +53,9 @@ async def cmd_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     emoji = get_rarity_emoji(item["rarity"])
     await update.message.reply_text(
-        f"\U0001f381 <b>SOVG\u02bcA</b>\n"
+        f"🎁 <b>SOVGʼA</b>\n"
         f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        f"\U0001f464 <b>{user.full_name}</b> sovg\u02bca yubormoqda:\n"
+        f"👤 <b>{user.full_name}</b> sovgʼa yubormoqda:\n"
         f"{emoji} <b>{item['name']}</b> \u2014 {item['anime']}\n"
         f"\u2b50 Daraja: {item['rarity']}\n"
         f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
@@ -74,10 +74,10 @@ async def handle_gift_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         gift_id = data[len("gift_accept_"):]
         gift = pending_gifts.get(gift_id)
         if not gift:
-            await query.edit_message_text("\u274c Sovg\u02bca muddati o\u02bcdi.")
+            await query.edit_message_text("\u274c Sovgʼa muddati oʼdi.")
             return
         if user.id != gift["receiver_id"]:
-            await query.answer("\u274c Bu sovg\u02bca siz uchun emas!", show_alert=True)
+            await query.answer("\u274c Bu sovgʼa siz uchun emas!", show_alert=True)
             return
 
         success = await col_db.transfer_collection_item(gift["collection_id"], gift["sender_id"], gift["receiver_id"])
@@ -87,23 +87,23 @@ async def handle_gift_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                                  details=f"to={gift['receiver_id']} cid={gift['collection_id']}")
             emoji = get_rarity_emoji(gift["item"]["rarity"])
             await query.edit_message_text(
-                f"\U0001f381 <b>SOVG\u02bcA QABUL QILINDI!</b>\n"
+                f"🎁 <b>SOVGʼA QABUL QILINDI!</b>\n"
                 f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-                f"{emoji} <b>{gift['item']['name']}</b> muvaffaqiyatli o\u02bckazildi!\n"
+                f"{emoji} <b>{gift['item']['name']}</b> muvaffaqiyatli oʼkazildi!\n"
                 f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
                 parse_mode="HTML"
             )
         else:
-            await query.edit_message_text("\u274c Sovg\u02bca amalga oshmadi.")
+            await query.edit_message_text("\u274c Sovgʼa amalga oshmadi.")
 
     elif data.startswith("gift_decline_"):
         gift_id = data[len("gift_decline_"):]
         gift = pending_gifts.get(gift_id)
         if not gift:
-            await query.edit_message_text("\u274c Sovg\u02bca topilmadi.")
+            await query.edit_message_text("\u274c Sovgʼa topilmadi.")
             return
         if user.id not in (gift["sender_id"], gift["receiver_id"]):
-            await query.answer("\u274c Ruxsatingiz yo\u02bcq!", show_alert=True)
+            await query.answer("\u274c Ruxsatingiz yoʼq!", show_alert=True)
             return
         pending_gifts.pop(gift_id, None)
-        await query.edit_message_text("\u274c Sovg\u02bca rad etildi.")
+        await query.edit_message_text("\u274c Sovgʼa rad etildi.")
