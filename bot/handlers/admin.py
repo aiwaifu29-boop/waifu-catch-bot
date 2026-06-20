@@ -421,7 +421,7 @@ async def handle_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE
           "\u2022 <code>-1001234567890</code> \u2014 to'g'ridan guruh ID\n"
           "\u2022 <code>@groupusername</code> \u2014 ommaviy guruh\n"
           "\u2022 <code>https://t.me/groupname</code> \u2014 havola\n\n"
-          "\U0001f4cc Private guruh uchun guruh ID kerak.",
+          "📌 Private guruh uchun guruh ID kerak.",
           parse_mode="HTML", reply_markup=kb
       )
       return
