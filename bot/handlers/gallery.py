@@ -32,12 +32,12 @@ def _build_caption(items: list, index: int, owner_name: str) -> str:
         list_lines.append(f"{marker}{e}{fv} <b>{it['name']}</b> | <code>#{it['collection_id']}</code>")
 
     caption = (
-        f'U0001f3b4 <b>{owner_name}</b> — kolleksiya [{index+1}/{total}]\n'
+        f'🎴 <b>{owner_name}</b> — kolleksiya [{index+1}/{total}]\n'
         f'━━━━━━━━━━━━━━━━━━━━\n'
         f'{emoji} {fav}<b>{item["name"]}</b>\n'
-        f'U0001f3cc {item["anime"]}\n'
+        f'🎌 {item["anime"]}\n'
         f'⭐ {item["rarity"]}\n'
-        f'U0001f194 <code>#{item["collection_id"]}</code>\n'
+        f'🆔 <code>#{item["collection_id"]}</code>\n'
         f'━━━━━━━━━━━━━━━━━━━━\n'
         + '\n'.join(list_lines)
         + (f'\n<i>...va yana {total-end} ta boshqa</i>' if end < total else '')
@@ -50,18 +50,18 @@ def _build_keyboard(items: list, index: int, owner_id: int, bot_username: str) -
     nav_row = []
     if index > 0:
         nav_row.append(InlineKeyboardButton('⬅️', callback_data=f'gal_{owner_id}_{index-1}'))
-    nav_row.append(InlineKeyboardButton(f'U0001f4c4 {index+1}/{total}', callback_data='gal_noop'))
+    nav_row.append(InlineKeyboardButton(f'📄 {index+1}/{total}', callback_data='gal_noop'))
     if index < total - 1:
         nav_row.append(InlineKeyboardButton('➡️', callback_data=f'gal_{owner_id}_{index+1}'))
 
     fav_item = items[index]
     fav_btn = InlineKeyboardButton(
-        '⭐ Sevimli' if not fav_item.get('is_favorite') else 'U0001f494 Olib tashlash',
+        '⭐ Sevimli' if not fav_item.get('is_favorite') else '💔 Olib tashlash',
         callback_data=f'gal_fav_{owner_id}_{index}_{fav_item["collection_id"]}'
     )
 
     see_btn = InlineKeyboardButton(
-        'U0001f4d6 See Collection',
+        '📖 See Collection',
         switch_inline_query_current_chat=f'collection.{owner_id}'
     )
 
@@ -75,8 +75,8 @@ async def cmd_collection_gallery(update: Update, context: ContextTypes.DEFAULT_T
     items = await col_db.get_collection(user.id, limit=200)
     if not items:
         await update.message.reply_text(
-            'U0001f4e6 Kolleksiyangiz hali boʼsh!\n'
-            'Guruhdagi waifularni qoʼl kiritib boring U0001f3ae'
+            '📦 Kolleksiyangiz hali boʼsh!\n'
+            'Guruhdagi waifularni qoʼl kiritib boring 🎮'
         )
         return
 
