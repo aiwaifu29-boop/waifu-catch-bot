@@ -35,6 +35,7 @@ from handlers.admin import (
     cmd_settitle, cmd_removetitle, cmd_titles
 )
 from handlers.group_management import handle_new_chat_member, handle_chat_member
+from handlers.duplicate import cmd_duplicate, handle_dup_callback
 from middlewares.moderation import cmd_warn, cmd_mute, cmd_unmute, cmd_kick, cmd_ban, cmd_unban
 from middlewares.subscription import handle_subscription_check
 from middlewares.ban_middleware import ban_check_middleware
@@ -59,6 +60,8 @@ GROUP_COMMANDS = [
     BotCommand('market', "Bugungi do'kon"),
     BotCommand('buy', "Do'kondan sotib olish"),
     BotCommand('search', 'Waifu qidirish'),
+    BotCommand('duplicate', 'Duplicate kartalar tizimi'),
+    BotCommand('duplicate', 'Duplicate kartalar'),
     BotCommand('help', 'Yordam'),
 ]
 
@@ -102,7 +105,7 @@ async def show_user_collection_by_id(update, context, owner_id: int):
 
     if not items:
         await update.message.reply_text(
-            f'U0001f4e6 <b>{owner_name}</b>ning kolleksiyasi boʼsh.', parse_mode='HTML'
+            f'📦 <b>{owner_name}</b>ning kolleksiyasi boʼsh.', parse_mode='HTML'
         )
         return
 
@@ -111,15 +114,15 @@ async def show_user_collection_by_id(update, context, owner_id: int):
     fav_mark = '⭐ ' if show_item.get('is_favorite') else ''
 
     caption = (
-        f'U0001f3b4 <b>{owner_name}</b>ning kolleksiyasi — jami {len(items)} ta\n'
+        f'🎴 <b>{owner_name}</b>ning kolleksiyasi — jami {len(items)} ta\n'
         f'━━━━━━━━━━━━━━━━━━━━\n'
         f'{emoji} {fav_mark}<b>{show_item["name"]}</b>\n'
-        f'U0001f3cc {show_item["anime"]}\n'
+        f'🎌 {show_item["anime"]}\n'
         f'⭐ {show_item["rarity"]}\n'
         f'━━━━━━━━━━━━━━━━━━━━'
     )
     inline_btn = InlineKeyboardButton(
-        'U0001f4d6 Toʼliq kolleksiyani koʼrish',
+        '📖 Toʼliq kolleksiyani koʼrish',
         switch_inline_query_current_chat=f'collection.{owner_id}'
     )
     try:
@@ -172,6 +175,7 @@ def build_app(token: str) -> Application:
     app.add_handler(CommandHandler('help', cmd_help))
     app.add_handler(CommandHandler('profil', cmd_profil))
     app.add_handler(CommandHandler('collection', cmd_collection_gallery))
+    app.add_handler(CommandHandler('duplicate', cmd_duplicate))
     app.add_handler(CommandHandler('daily', cmd_daily))
     app.add_handler(CommandHandler('top', cmd_top))
     app.add_handler(CommandHandler('gtop', cmd_gtop))
@@ -223,6 +227,7 @@ def build_app(token: str) -> Application:
     app.add_handler(CallbackQueryHandler(handle_trade_callback, pattern='^trade_'))
     app.add_handler(CallbackQueryHandler(handle_gift_callback, pattern='^gift_'))
     app.add_handler(CallbackQueryHandler(handle_gallery_callback, pattern='^gal_'))
+    app.add_handler(CallbackQueryHandler(handle_dup_callback, pattern='^dup_'))
     app.add_handler(CallbackQueryHandler(handle_shop_callback, pattern='^shop_'))
     app.add_handler(CallbackQueryHandler(handle_admin_callback, pattern='^adm_'))
 
