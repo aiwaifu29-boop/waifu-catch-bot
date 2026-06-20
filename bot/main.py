@@ -87,6 +87,9 @@ async def cmd_start_handler(update: Update, context):
             return
         except ValueError:
             pass
+    if args and args[0] == 'dup':
+        await cmd_duplicate(update, context)
+        return
     await cmd_start(update, context)
 
 
